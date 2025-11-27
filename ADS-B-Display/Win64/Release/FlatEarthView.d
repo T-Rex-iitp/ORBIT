@@ -1,5 +1,5 @@
 .\Win64\Release\FlatEarthView.o: \
-  C:\Users\admin\Desktop\AI-Enabled-IFTA\ADS-B-Display\ADS-B-DisplayPCH1.h \
+  C:\Users\admin\Desktop\t-rex\ADS-B-Display\ADS-B-DisplayPCH1.h \
   c:\program\ files\ (x86)\embarcadero\studio\23.0\include\windows\vcl\vcl.h \
   c:\program\ files\ (x86)\embarcadero\studio\23.0\include\windows\vcl\basepch0.h \
   c:\program\ files\ (x86)\embarcadero\studio\23.0\include\windows\rtl\System.hpp \
@@ -352,15 +352,15 @@
   Map\MapSrc/Region.h Map\MapSrc/VMath.h Map\MapSrc/Exceptions.h \
   Map\MapSrc/Layer.h Map\MapSrc/SlaveLayer.h \
   c:\program\ files\ (x86)\embarcadero\studio\23.0\include\windows\crtl\Math.h \
-  C:\Users\admin\Desktop\AI-Enabled-IFTA\ADS-B-Display\DisplayGUI.h \
+  C:\Users\admin\Desktop\t-rex\ADS-B-Display\DisplayGUI.h \
   c:\program\ files\ (x86)\embarcadero\studio\23.0\include\windows\rtl\Classes.hpp \
   c:\program\ files\ (x86)\embarcadero\studio\23.0\include\windows\vcl\Controls.hpp \
   c:\program\ files\ (x86)\embarcadero\studio\23.0\include\windows\vcl\StdCtrls.hpp \
   c:\program\ files\ (x86)\embarcadero\studio\23.0\include\windows\vcl\Forms.hpp \
-  C:\Users\admin\Desktop\AI-Enabled-IFTA\ADS-B-Display/Components\OpenGLv0.5BDS2006\Component\OpenGLPanel.h \
-  C:\Users\admin\Desktop\AI-Enabled-IFTA\ADS-B-Display/Components\OpenGLv0.5BDS2006\Component/BMPTexture.hpp \
-  C:\Users\admin\Desktop\AI-Enabled-IFTA\ADS-B-Display/Components\OpenGLv0.5BDS2006\Component/OpenGLFont3D.hpp \
-  C:\Users\admin\Desktop\AI-Enabled-IFTA\ADS-B-Display/Components\OpenGLv0.5BDS2006\Component/OpenGLFont2D.hpp \
+  C:\Users\admin\Desktop\t-rex\ADS-B-Display/Components\OpenGLv0.5BDS2006\Component\OpenGLPanel.h \
+  C:\Users\admin\Desktop\t-rex\ADS-B-Display/Components\OpenGLv0.5BDS2006\Component/BMPTexture.hpp \
+  C:\Users\admin\Desktop\t-rex\ADS-B-Display/Components\OpenGLv0.5BDS2006\Component/OpenGLFont3D.hpp \
+  C:\Users\admin\Desktop\t-rex\ADS-B-Display/Components\OpenGLv0.5BDS2006\Component/OpenGLFont2D.hpp \
   c:\program\ files\ (x86)\embarcadero\studio\23.0\include\windows\vcl\ComCtrls.hpp \
   c:\program\ files\ (x86)\embarcadero\studio\23.0\include\windows\vcl\ExtCtrls.hpp \
   c:\program\ files\ (x86)\embarcadero\studio\23.0\include\windows\vcl\Menus.hpp \
@@ -406,7 +406,7 @@
   c:\program\ files\ (x86)\embarcadero\studio\23.0\include\windows\crtl\setjmp.h \
   Map\jpeg\jpeglib.h Map\jpeg/../jpeg/jconfig.h Map\jpeg/jconfig.vc \
   Map\jpeg/jmorecfg.h HashTable\Lib\ght_hash_table.h \
-  C:\Users\admin\Desktop\AI-Enabled-IFTA\ADS-B-Display/TriangulatPoly.h \
+  C:\Users\admin\Desktop\t-rex\ADS-B-Display/TriangulatPoly.h \
   c:\program\ files\ (x86)\embarcadero\studio\23.0\include\windows\vcl\Dialogs.hpp \
   c:\program\ files\ (x86)\embarcadero\studio\23.0\include\windows\rtl\IdTCPClient.hpp \
   c:\program\ files\ (x86)\embarcadero\studio\23.0\include\windows\rtl\IdExceptionCore.hpp \
@@ -443,5 +443,4 @@
   c:\program\ files\ (x86)\embarcadero\studio\23.0\include\windows\vcl\Vcl.OleServer.hpp \
   c:\program\ files\ (x86)\embarcadero\studio\23.0\include\windows\rtl\utilcls.h \
   c:\program\ files\ (x86)\embarcadero\studio\23.0\include\windows\vcl\ocxproxy.h \
-  Components\SAPI/SpeechLib_TLB.h \
-  C:\Users\admin\Desktop\AI-Enabled-IFTA\ADS-B-Display/WhisperSTT.h
+  Components\SAPI/SpeechLib_TLB.h

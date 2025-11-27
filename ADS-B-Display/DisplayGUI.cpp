@@ -232,114 +232,8 @@ __fastcall TForm1::TForm1(TComponent* Owner)
  BigQueryRowCount=0;
  BigQueryFileCount=0;
  InitAircraftDB(AircraftDBPathFileName);
- SpVoice1->Rate=2; // Set Rate of Voice
- SpVoice1->Volume=100;  //Set Volume of Voice
- 
- // === NEW: Initialize Whisper STT (Local Model Only) ===
- whisperSTT = NULL;
- useWhisperSTT = true;  // Set to true to use Whisper, false to use SAPI
- 
- if (useWhisperSTT)
- {
-     try
-     {
-         whisperSTT = new TWhisperSTT();
-         
-         // Configure Whisper STT - Local Model Only
-         // 로컬 whisper.cpp 모델 사용 (오프라인 작동)
-         whisperSTT->SetLocalModelPath(L"C:\\whisper.cpp");
-         whisperSTT->UseLocalModel(true);
-         
-         // Initialize with Base model (good balance of speed and accuracy)
-         if (whisperSTT->Initialize(WhisperModelType::BASE))
-         {
-             printf("Whisper STT (Local Model) initialized successfully\n");
-             
-             // Update UI to show WhisperSTT is ready
-             if (WhisperSTTPanel)
-             {
-                 WhisperSTTPanel->Visible = true;
-                 WhisperSTTLabel->Caption = "Whisper STT Status: Ready";
-                 WhisperSTTButton->Caption = "Start Voice Recognition";
-                 WhisperSTTButton->Enabled = true;
-             }
-             
-             // Make Memo1 visible for transcription display
-             Memo1->Visible = true;
-             Memo1->Lines->Clear();
-             Memo1->Lines->Add("=== Whisper STT Speech Recognition ===");
-             Memo1->Lines->Add("Status: Initialized and Ready");
-             Memo1->Lines->Add("Click 'Start Voice Recognition' to begin");
-             
-             // Set up recognition callback
-             whisperSTT->SetRecognitionCallback([this](const std::wstring& text) {
-                 // Thread-safe UI update
-                 TThread::Synchronize(nullptr, [this, text]() {
-                     Memo1->Lines->Add(String(text.c_str()));
-                     // Process voice commands
-                     ProcessVoiceCommand(text);
-                 });
-             });
-         }
-         else
-         {
-             ShowMessage("Whisper STT initialization failed: " + 
-                        String(whisperSTT->GetLastError().c_str()) +
-                        "\n\nPlease check:\n" +
-                        "1. whisper.cpp is installed at C:\\whisper.cpp\n" +
-                        "2. Model file exists at C:\\whisper.cpp\\models\\ggml-base.bin\n" +
-                        "3. main.exe exists at C:\\whisper.cpp\\build\\bin\\Release\\main.exe\n\n" +
-                        "Falling back to SAPI");
-             delete whisperSTT;
-             whisperSTT = NULL;
-             useWhisperSTT = false;
-             
-             // Update UI to show fallback to SAPI
-             if (WhisperSTTPanel)
-             {
-                 WhisperSTTPanel->Visible = true;
-                 WhisperSTTLabel->Caption = "Whisper STT Status: Failed (Using SAPI)";
-                 WhisperSTTButton->Caption = "Start Voice Recognition (SAPI)";
-                 WhisperSTTButton->Enabled = true;
-             }
-         }
-     }
-     catch (Exception& e)
-     {
-         ShowMessage("Whisper STT error: " + e.Message + "\n\nFalling back to SAPI");
-         if (whisperSTT)
-         {
-             delete whisperSTT;
-             whisperSTT = NULL;
-         }
-         useWhisperSTT = false;
-         
-         // Update UI to show fallback to SAPI
-         if (WhisperSTTPanel)
-         {
-             WhisperSTTPanel->Visible = true;
-             WhisperSTTLabel->Caption = "Whisper STT Status: Error (Using SAPI)";
-             WhisperSTTButton->Caption = "Start Voice Recognition (SAPI)";
-             WhisperSTTButton->Enabled = true;
-         }
-     }
- }
- // === END: Whisper STT Initialization ===
- 
- // Initialize WhisperSTT UI panel visibility
- if (WhisperSTTPanel)
- {
-     WhisperSTTPanel->Visible = true;
-     if (!useWhisperSTT || !whisperSTT)
-     {
-         // WhisperSTT not available, show SAPI fallback
-         WhisperSTTLabel->Caption = "Whisper STT Status: Not Available (Using SAPI)";
-         WhisperSTTButton->Caption = "Start Voice Recognition (SAPI)";
-     }
- }
- 
- // Memo1 is already set to Visible = True in DFM file
- 
+ Form1->SpVoice1->Rate=2; // Set Rate of Voice
+ Form1->SpVoice1->Volume=100;  //Set Volume of Voice
  printf("init complete\n");
 }
 //---------------------------------------------------------------------------
@@ -347,16 +241,6 @@ __fastcall TForm1::~TForm1()
 {
  Timer1->Enabled=false;
  Timer2->Enabled=false;
- 
- // === NEW: Cleanup Whisper STT ===
- if (whisperSTT)
- {
-     whisperSTT->StopListening();
-     delete whisperSTT;
-     whisperSTT = NULL;
- }
- // === END: Whisper STT Cleanup ===
- 
  delete g_EarthView;
  if (g_GETileManager) delete g_GETileManager;
  delete g_MasterLayer;
@@ -900,7 +784,7 @@ return Str.WideChar(str, Str.WideCharBufSize());
 		 TrackHook.Valid_CC=true;
 		 TrackHook.ICAO_CC=ADS_B_Aircraft->ICAO;
 		 printf("%s\n\n",GetAircraftDBInfo(ADS_B_Aircraft->ICAO));
-         SpVoice1->Speak(wtext, SpeechVoiceSpeakFlags::SVSFlagsAsync );  // Say Text and continue
+         Form1->SpVoice1->Speak(wtext, SpeechVoiceSpeakFlags::SVSFlagsAsync );  // Say Text and continue
          delete wtext;
 		}
 		else
@@ -2179,202 +2063,11 @@ void __fastcall TForm1::SpSharedRecoContext1Recognition(TObject *Sender, long St
 
 void __fastcall TForm1::LIstenClick(TObject *Sender)
 {
-    Memo1->Visible = true;
-    
-    // === NEW: Use Whisper STT if available ===
-    if (useWhisperSTT && whisperSTT)
-    {
-        if (!whisperSTT->IsListening())
-        {
-            // Start listening
-            if (whisperSTT->StartListening())
-            {
-                LIsten->Caption = "Stop Listening (Whisper)";
-                Memo1->Lines->Add("=== Whisper STT: Listening... ===");
-                if (WhisperSTTLabel) WhisperSTTLabel->Caption = "Whisper STT Status: Listening...";
-                if (WhisperSTTButton) WhisperSTTButton->Caption = "Stop Voice Recognition";
-                printf("Whisper STT: Started listening\n");
-            }
-            else
-            {
-                ShowMessage("Failed to start Whisper STT: " + 
-                           String(whisperSTT->GetLastError().c_str()));
-            }
-        }
-        else
-        {
-            // Stop listening
-            whisperSTT->StopListening();
-            LIsten->Caption = "Start Listening (Whisper)";
-            Memo1->Lines->Add("=== Whisper STT: Stopped ===");
-            if (WhisperSTTLabel) WhisperSTTLabel->Caption = "Whisper STT Status: Stopped";
-            if (WhisperSTTButton) WhisperSTTButton->Caption = "Start Voice Recognition";
-            printf("Whisper STT: Stopped listening\n");
-        }
-    }
-    else
-    {
-        // === OLD: Use SAPI (fallback) ===
-        SpSharedRecoContext1->EventInterests = SpeechRecoEvents::SREAllEvents;
-        SRGrammar = SpSharedRecoContext1->CreateGrammar(Variant(0));
-        SRGrammar->CmdSetRuleIdState(0, SpeechRuleState::SGDSActive);
-        SRGrammar->DictationSetState(SpeechRuleState::SGDSActive);
-        LIsten->Caption = "Listening (SAPI)";
-        Memo1->Lines->Add("=== SAPI: Listening... ===");
-        if (WhisperSTTLabel) WhisperSTTLabel->Caption = "Whisper STT Status: Using SAPI";
-        if (WhisperSTTButton) WhisperSTTButton->Caption = "Start Voice Recognition (SAPI)";
-    }
-}
-//---------------------------------------------------------------------------
-
-void __fastcall TForm1::WhisperSTTButtonClick(TObject *Sender)
-{
-    // Make sure Memo1 is visible
-    Memo1->Visible = true;
-    
-    // === Use Whisper STT if available ===
-    if (useWhisperSTT && whisperSTT)
-    {
-        if (!whisperSTT->IsListening())
-        {
-            // Start listening
-            if (whisperSTT->StartListening())
-            {
-                WhisperSTTLabel->Caption = "Whisper STT Status: Listening...";
-                WhisperSTTButton->Caption = "Stop Voice Recognition";
-                Memo1->Lines->Add("=== Whisper STT: Listening... ===");
-                Memo1->Lines->Add("Speak now...");
-                printf("Whisper STT: Started listening\n");
-            }
-            else
-            {
-                ShowMessage("Failed to start Whisper STT: " + 
-                           String(whisperSTT->GetLastError().c_str()));
-                WhisperSTTLabel->Caption = "Whisper STT Status: Error - " + 
-                                          String(whisperSTT->GetLastError().c_str());
-            }
-        }
-        else
-        {
-            // Stop listening
-            whisperSTT->StopListening();
-            WhisperSTTLabel->Caption = "Whisper STT Status: Stopped";
-            WhisperSTTButton->Caption = "Start Voice Recognition";
-            Memo1->Lines->Add("=== Whisper STT: Stopped ===");
-            printf("Whisper STT: Stopped listening\n");
-        }
-    }
-    else
-    {
-        // === Fallback to SAPI ===
-        SpSharedRecoContext1->EventInterests = SpeechRecoEvents::SREAllEvents;
-        SRGrammar = SpSharedRecoContext1->CreateGrammar(Variant(0));
-        SRGrammar->CmdSetRuleIdState(0, SpeechRuleState::SGDSActive);
-        SRGrammar->DictationSetState(SpeechRuleState::SGDSActive);
-        WhisperSTTLabel->Caption = "Whisper STT Status: Using SAPI";
-        WhisperSTTButton->Caption = "Listening (SAPI)";
-        Memo1->Lines->Add("=== SAPI: Listening... ===");
-    }
-}
-//---------------------------------------------------------------------------
-
-void __fastcall TForm1::ProcessVoiceCommand(const std::wstring& text)
-{
-    // Convert to lowercase for easier matching
-    std::wstring lowerText = text;
-    std::transform(lowerText.begin(), lowerText.end(), lowerText.begin(), ::tolower);
-    
-    printf("Voice Command: %S\n", text.c_str());
-    
-    // === Zoom Commands ===
-    if (lowerText.find(L"zoom in") != std::wstring::npos ||
-        lowerText.find(L"확대") != std::wstring::npos)
-    {
-        Memo1->Lines->Add("[Command] Zooming in...");
-        ZoomInClick(NULL);
-    }
-    else if (lowerText.find(L"zoom out") != std::wstring::npos ||
-             lowerText.find(L"축소") != std::wstring::npos)
-    {
-        Memo1->Lines->Add("[Command] Zooming out...");
-        ZoomOutClick(NULL);
-    }
-    
-    // === Connection Commands ===
-    else if (lowerText.find(L"connect") != std::wstring::npos ||
-             lowerText.find(L"연결") != std::wstring::npos)
-    {
-        if (SBSConnectButton->Caption == "SBS Connect")
-        {
-            Memo1->Lines->Add("[Command] Connecting to SBS...");
-            SBSConnectButtonClick(NULL);
-        }
-    }
-    else if (lowerText.find(L"disconnect") != std::wstring::npos ||
-             lowerText.find(L"연결 해제") != std::wstring::npos)
-    {
-        if (SBSConnectButton->Caption == "SBS Disconnect")
-        {
-            Memo1->Lines->Add("[Command] Disconnecting from SBS...");
-            SBSConnectButtonClick(NULL);
-        }
-    }
-    
-    // === View Commands ===
-    else if (lowerText.find(L"show map") != std::wstring::npos ||
-             lowerText.find(L"지도 표시") != std::wstring::npos)
-    {
-        Memo1->Lines->Add("[Command] Showing map...");
-        DrawMap->Checked = true;
-    }
-    else if (lowerText.find(L"hide map") != std::wstring::npos ||
-             lowerText.find(L"지도 숨김") != std::wstring::npos)
-    {
-        Memo1->Lines->Add("[Command] Hiding map...");
-        DrawMap->Checked = false;
-    }
-    
-    // === Purge Commands ===
-    else if (lowerText.find(L"purge") != std::wstring::npos ||
-             lowerText.find(L"정리") != std::wstring::npos)
-    {
-        Memo1->Lines->Add("[Command] Purging stale tracks...");
-        PurgeButtonClick(NULL);
-    }
-    
-    // === Recording Commands ===
-    else if (lowerText.find(L"start record") != std::wstring::npos ||
-             lowerText.find(L"녹화 시작") != std::wstring::npos)
-    {
-        Memo1->Lines->Add("[Command] Starting recording...");
-        SBSRecordButtonClick(NULL);
-    }
-    else if (lowerText.find(L"stop record") != std::wstring::npos ||
-             lowerText.find(L"녹화 중지") != std::wstring::npos)
-    {
-        Memo1->Lines->Add("[Command] Stopping recording...");
-        SBSRecordButtonClick(NULL);
-    }
-    
-    // === Help Command ===
-    else if (lowerText.find(L"help") != std::wstring::npos ||
-             lowerText.find(L"도움말") != std::wstring::npos)
-    {
-        Memo1->Lines->Add("=== Voice Commands ===");
-        Memo1->Lines->Add("  - Zoom in/out");
-        Memo1->Lines->Add("  - Connect/Disconnect");
-        Memo1->Lines->Add("  - Show/Hide map");
-        Memo1->Lines->Add("  - Purge (clear stale tracks)");
-        Memo1->Lines->Add("  - Start/Stop record");
-        Memo1->Lines->Add("=====================");
-    }
-    
-    // If no command matched, just acknowledge
-    else
-    {
-        // Just log the transcription, no specific action
-        printf("No command matched for: %S\n", text.c_str());
-    }
+    Memo1->Visible=true;
+	SpSharedRecoContext1->EventInterests = SpeechRecoEvents::SREAllEvents;
+	SRGrammar=SpSharedRecoContext1->CreateGrammar(Variant(0));
+	SRGrammar->CmdSetRuleIdState(0, SpeechRuleState::SGDSActive);
+	SRGrammar->DictationSetState(SpeechRuleState::SGDSActive);
 }
 //---------------------------------------------------------------------------
 

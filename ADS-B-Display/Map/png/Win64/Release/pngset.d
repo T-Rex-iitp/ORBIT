@@ -1,7 +1,7 @@
 .\Win64\Release\pngset.o: pngset.c \
-  C:\Users\admin\Desktop\AI-Enabled-IFTA\ADS-B-Display\Map\png/png.h \
+  C:\Users\admin\Desktop\t-rex\ADS-B-Display\Map\png/png.h \
   ..\zlib\zlib.h ..\zlib/zconf.h \
-  C:\Users\admin\Desktop\AI-Enabled-IFTA\ADS-B-Display\Map\png/pngconf.h \
+  C:\Users\admin\Desktop\t-rex\ADS-B-Display\Map\png/pngconf.h \
   c:\program\ files\ (x86)\embarcadero\studio\23.0\include\windows\crtl\stdio.h \
   c:\program\ files\ (x86)\embarcadero\studio\23.0\include\windows\crtl\_stddef.h \
   c:\program\ files\ (x86)\embarcadero\studio\23.0\include\windows\crtl\_defs.h \

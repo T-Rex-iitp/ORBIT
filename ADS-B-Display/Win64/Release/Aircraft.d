@@ -1,5 +1,5 @@
 .\Win64\Release\Aircraft.o: \
-  C:\Users\admin\Desktop\AI-Enabled-IFTA\ADS-B-Display\ADS-B-DisplayPCH1.h \
+  C:\Users\admin\Desktop\t-rex\ADS-B-Display\ADS-B-DisplayPCH1.h \
   c:\program\ files\ (x86)\embarcadero\studio\23.0\include\windows\vcl\vcl.h \
   c:\program\ files\ (x86)\embarcadero\studio\23.0\include\windows\vcl\basepch0.h \
   c:\program\ files\ (x86)\embarcadero\studio\23.0\include\windows\rtl\System.hpp \
@@ -343,7 +343,6 @@
   c:\program\ files\ (x86)\embarcadero\studio\23.0\include\windows\vcl\Vcl.Mask.hpp \
   c:\program\ files\ (x86)\embarcadero\studio\23.0\include\windows\rtl\System.MaskUtils.hpp \
   c:\program\ files\ (x86)\embarcadero\studio\23.0\include\windows\vcl\Vcl.ListActns.hpp \
-  Aircraft.cpp \
-  C:\Users\admin\Desktop\AI-Enabled-IFTA\ADS-B-Display/Aircraft.h \
-  C:\Users\admin\Desktop\AI-Enabled-IFTA\ADS-B-Display/DecodeRawADS_B.h \
-  C:\Users\admin\Desktop\AI-Enabled-IFTA\ADS-B-Display/TimeFunctions.h
+  Aircraft.cpp C:\Users\admin\Desktop\t-rex\ADS-B-Display/Aircraft.h \
+  C:\Users\admin\Desktop\t-rex\ADS-B-Display/DecodeRawADS_B.h \
+  C:\Users\admin\Desktop\t-rex\ADS-B-Display/TimeFunctions.h

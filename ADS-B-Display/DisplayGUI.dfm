@@ -791,43 +791,10 @@ object Form1: TForm1
         Width = 249
         Height = 144
         Lines.Strings = (
-          '=== Whisper STT Speech Recognition ===')
+          '')
         ReadOnly = True
-        ScrollBars = ssVertical
         TabOrder = 20
-        Visible = True
-      end
-      object WhisperSTTPanel: TPanel
-        Left = 0
-        Top = 568
-        Width = 249
-        Height = 65
-        Caption = ''
-        TabOrder = 21
-        Visible = True
-        object WhisperSTTLabel: TLabel
-          Left = 8
-          Top = 8
-          Width = 233
-          Height = 13
-          Caption = 'Whisper STT Status: Ready'
-          Font.Charset = DEFAULT_CHARSET
-          Font.Color = clWindowText
-          Font.Height = -11
-          Font.Name = 'Tahoma'
-          Font.Style = [fsBold]
-          ParentFont = False
-        end
-        object WhisperSTTButton: TButton
-          Left = 8
-          Top = 27
-          Width = 233
-          Height = 30
-          Caption = 'Start Voice Recognition'
-          TabOrder = 0
-          OnClick = WhisperSTTButtonClick
-        end
-      end
+        Visible = False
       end
     end
     object Panel2: TPanel

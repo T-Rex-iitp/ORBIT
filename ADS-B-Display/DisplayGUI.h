@@ -29,7 +29,6 @@
 #include <System.Net.URLClient.hpp>
 #include "SpeechLib_OCX.h"
 #include <Vcl.OleServer.hpp>
-#include "WhisperSTT.h"  // NEW: Whisper STT support
 
 typedef float T_GL_Color[4];
 
@@ -189,9 +188,6 @@ __published:	// IDE-managed Components
 	TSpSharedRecoContext *SpSharedRecoContext1;
 	TMemo *Memo1;
 	TMenuItem *LIsten;
-	TPanel *WhisperSTTPanel;
-	TLabel *WhisperSTTLabel;
-	TButton *WhisperSTTButton;
 	void __fastcall ObjectDisplayInit(TObject *Sender);
 	void __fastcall ObjectDisplayResize(TObject *Sender);
 	void __fastcall ObjectDisplayPaint(TObject *Sender);
@@ -240,8 +236,6 @@ __published:	// IDE-managed Components
           Variant StreamPosition, SpeechRecognitionType RecognitionType,
           ISpeechRecoResult *Result);
 	void __fastcall LIstenClick(TObject *Sender);
-	void __fastcall WhisperSTTButtonClick(TObject *Sender);
-	void __fastcall ProcessVoiceCommand(const std::wstring& text);  // NEW: Voice command processor
 
 private:	// User declarations
 
@@ -263,10 +257,7 @@ public:		// User declarations
     void __fastcall CloseBigQueryCSV(void);
     bool __fastcall LoadARTCCBoundaries(AnsiString FileName);
 
-    // Speech Recognition
-    ISpeechRecoGrammar         *SRGrammar;  // OLD: SAPI (keep for TTS)
-    TWhisperSTT                *whisperSTT;  // NEW: Whisper STT
-    bool                       useWhisperSTT;  // Toggle between SAPI and Whisper
+    ISpeechRecoGrammar         *SRGrammar;
 	int                        MouseDownX,MouseDownY;
 	bool                       MouseDown;
 	TTrackHook                 TrackHook;
