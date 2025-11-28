@@ -9,6 +9,10 @@
 #include <stdlib.h>
 #include <filesystem>
 #include <fileapi.h>
+#include <windows.h>
+#include <mmsystem.h>
+#include <mmreg.h>
+#pragma comment(lib, "winmm.lib")
 
 #pragma hdrstop
 
@@ -60,6 +64,7 @@ TForm1 *Form1;
  static void RunPythonScript(AnsiString scriptPath,AnsiString args);
  static bool DeleteFilesWithExtension(AnsiString dirPath, AnsiString extension);
  static int FinshARTCCBoundary(void);
+ static AnsiString RunPythonScriptWithOutput(AnsiString scriptPath, AnsiString args);
  //---------------------------------------------------------------------------
 
 static char *stristr(const char *String, const char *Pattern);
@@ -197,6 +202,17 @@ __fastcall TForm1::TForm1(TComponent* Owner)
   DeleteFileA(BigQueryLogFileName.c_str());
   CurrentSpriteImage=0;
   InitDecodeRawADS_B();
+  
+  // Initialize speech transcription paths
+  AnsiString HomeDir = ExtractFilePath(ExtractFileDir(Application->ExeName));
+  // Use conda iitp environment Python directly
+  SpeechPythonPath = "C:\\Users\\admin\\miniconda3\\envs\\iitp\\python.exe"; // Use iitp conda environment
+  // Fix path: go up from Win64/Release to ADS-B-Display, then up to AI-Enabled-IFTA, then to speech
+  SpeechTranscribeScriptPath = HomeDir + AnsiString("..\\..\\speech\\transcribe.py");
+  SpeechTranscribeThread = NULL;
+  IsRecordingVoice = false;
+  RecordedAudioPath = "";
+  AudioRecorder = new TAudioRecorder();
   RecordRawStream=NULL;
   PlayBackRawStream=NULL;
   TrackHook.Valid_CC=false;
@@ -241,6 +257,20 @@ __fastcall TForm1::~TForm1()
 {
  Timer1->Enabled=false;
  Timer2->Enabled=false;
+ if (AudioRecorder) 
+ {
+	 AudioRecorder->StopRecording();
+	 delete AudioRecorder;
+ }
+ if (SpeechTranscribeThread) 
+ {
+	 if (!SpeechTranscribeThread->Finished)
+	 {
+		 SpeechTranscribeThread->Terminate();
+		 SpeechTranscribeThread->WaitFor();
+	 }
+	 delete SpeechTranscribeThread;
+ }
  delete g_EarthView;
  if (g_GETileManager) delete g_GETileManager;
  delete g_MasterLayer;
@@ -1835,6 +1865,87 @@ void __fastcall TForm1::CloseBigQueryCSV(void)
 		delete[] cmdLineCharArray;
     }
 
+//---------------------------------------------------------------------------
+// Run Python script and capture output
+//---------------------------------------------------------------------------
+static AnsiString RunPythonScriptWithOutput(AnsiString scriptPath, AnsiString args)
+{
+	STARTUPINFOA si;
+	PROCESS_INFORMATION pi;
+	HANDLE hStdOutRd, hStdOutWr;
+	SECURITY_ATTRIBUTES sa;
+	char buffer[4096];
+	DWORD bytesRead;
+	AnsiString output = "";
+
+	ZeroMemory(&si, sizeof(si));
+	si.cb = sizeof(si);
+	ZeroMemory(&pi, sizeof(pi));
+	ZeroMemory(&sa, sizeof(sa));
+	sa.nLength = sizeof(sa);
+	sa.bInheritHandle = TRUE;
+	sa.lpSecurityDescriptor = NULL;
+
+	// Create pipe for stdout
+	if (!CreatePipe(&hStdOutRd, &hStdOutWr, &sa, 0))
+	{
+		return "ERROR: Failed to create pipe";
+	}
+
+	si.hStdOutput = hStdOutWr;
+	si.hStdError = hStdOutWr;
+	si.dwFlags |= STARTF_USESTDHANDLES;
+
+	AnsiString commandLine = "python \"" + scriptPath + "\" " + args;
+	char* cmdLineCharArray = new char[strlen(commandLine.c_str()) + 1];
+	strcpy(cmdLineCharArray, commandLine.c_str());
+
+	if (CreateProcessA(
+		nullptr,
+		cmdLineCharArray,
+		nullptr,
+		nullptr,
+		TRUE,
+		CREATE_NO_WINDOW,
+		nullptr,
+		nullptr,
+		&si,
+		&pi))
+	{
+		CloseHandle(hStdOutWr);
+
+		// Wait for process with timeout
+		DWORD waitResult = WaitForSingleObject(pi.hProcess, 15000);
+		
+		if (waitResult == WAIT_OBJECT_0)
+		{
+			// Read output
+			while (ReadFile(hStdOutRd, buffer, sizeof(buffer) - 1, &bytesRead, NULL) && bytesRead > 0)
+			{
+				buffer[bytesRead] = '\0';
+				output += AnsiString(buffer);
+			}
+		}
+		else
+		{
+			TerminateProcess(pi.hProcess, 1);
+			output = "ERROR: Timeout";
+		}
+
+		CloseHandle(pi.hProcess);
+		CloseHandle(pi.hThread);
+	}
+	else
+	{
+		output = "ERROR: Failed to start process";
+	}
+
+	CloseHandle(hStdOutRd);
+	delete[] cmdLineCharArray;
+	
+	return output.Trim();
+}
+
  //--------------------------------------------------------------------------
 void __fastcall TForm1::UseSBSRemoteClick(TObject *Sender)
 {
@@ -1845,6 +1956,578 @@ void __fastcall TForm1::UseSBSRemoteClick(TObject *Sender)
 void __fastcall TForm1::UseSBSLocalClick(TObject *Sender)
 {
  SBSIpAddress->Text="128.237.96.41";
+}
+//---------------------------------------------------------------------------
+// Audio Recorder Implementation
+//---------------------------------------------------------------------------
+__fastcall TAudioRecorder::TAudioRecorder()
+{
+	hWaveIn = NULL;
+	waveHeaders = NULL;
+	numBuffers = 3;
+	isRecording = false;
+	outputFilePath = "";
+	
+	// Silence detection parameters
+	silenceThreshold = 0.01;  // RMS threshold (1% of max amplitude)
+	silenceDurationMs = 2000; // 2 seconds of silence before auto-stop
+	currentSilenceMs = 0;
+	lastSoundTime = 0;
+	autoStopEnabled = true;
+	autoStopCallback = NULL;
+	
+	// Initialize WAV format: 16kHz, 16-bit, mono (optimal for Whisper)
+	ZeroMemory(&wfx, sizeof(::WAVEFORMATEX));
+	wfx.wFormatTag = WAVE_FORMAT_PCM;
+	wfx.nChannels = 1;  // Mono
+	wfx.nSamplesPerSec = 16000;  // 16kHz (Whisper's preferred sample rate)
+	wfx.wBitsPerSample = 16;
+	wfx.nBlockAlign = wfx.nChannels * wfx.wBitsPerSample / 8;
+	wfx.nAvgBytesPerSec = wfx.nSamplesPerSec * wfx.nBlockAlign;
+	wfx.cbSize = 0;
+}
+
+__fastcall TAudioRecorder::~TAudioRecorder()
+{
+	StopRecording();
+}
+
+void CALLBACK TAudioRecorder::WaveInProc(::HWAVEIN hWaveIn, UINT uMsg, ::DWORD_PTR dwInstance, ::DWORD_PTR dwParam1, ::DWORD_PTR dwParam2)
+{
+	TAudioRecorder* pRecorder = (TAudioRecorder*)dwInstance;
+	
+	if (uMsg == WIM_DATA)
+	{
+		::WAVEHDR* pwh = (::WAVEHDR*)dwParam1;
+		if (pRecorder && pRecorder->isRecording)
+		{
+			pRecorder->ProcessBuffer(pwh);
+		}
+	}
+}
+
+double TAudioRecorder::CalculateRMS(short* samples, int numSamples)
+{
+	if (numSamples == 0) return 0.0;
+	
+	double sum = 0.0;
+	for (int i = 0; i < numSamples; i++)
+	{
+		double normalized = (double)samples[i] / 32768.0; // Normalize to -1.0 to 1.0
+		sum += normalized * normalized;
+	}
+	return sqrt(sum / numSamples);
+}
+
+void TAudioRecorder::CheckSilenceAndAutoStop()
+{
+	if (!autoStopEnabled || !isRecording)
+		return;
+	
+	DWORD currentTime = GetTickCount();
+	
+	// Check if we need to reset silence timer (first sound after silence)
+	if (lastSoundTime == 0)
+	{
+		lastSoundTime = currentTime;
+		return;
+	}
+	
+	// Calculate silence duration
+	currentSilenceMs = currentTime - lastSoundTime;
+	
+	// Auto-stop if silence exceeds threshold
+	if (currentSilenceMs >= silenceDurationMs && isRecording)
+	{
+		printf("WHISPER: Auto-stop detected (silence for %d ms)\n", currentSilenceMs);
+		
+		// Set flag first to prevent re-entry (don't call StopRecording here - do it in main thread)
+		isRecording = false;
+		
+		printf("WHISPER: Posting message to main thread for safe UI update...\n");
+		
+		// Notify callback (TForm1*) - use PostMessage for async processing to avoid deadlock
+		if (autoStopCallback)
+		{
+			TForm1* form = static_cast<TForm1*>(autoStopCallback);
+			// PostMessage for async queuing - main thread handler will call StopRecording()
+			BOOL result = PostMessage(form->Handle, WM_AUTO_STOP_RECORDING, 0, 0);
+			printf("WHISPER: PostMessage result: %d, Handle: %p\n", result, form->Handle);
+		}
+		else
+		{
+			printf("WHISPER ERROR: autoStopCallback is NULL!\n");
+		}
+	}
+}
+
+void TAudioRecorder::ProcessBuffer(::WAVEHDR* pwh)
+{
+	// Check if we're still recording (might have been stopped)
+	if (!isRecording)
+	{
+		printf("TAudioRecorder::ProcessBuffer() - not recording, skipping\n");
+		return;
+	}
+	
+	// Calculate audio level for silence detection
+	if (pwh->dwBytesRecorded > 0 && autoStopEnabled)
+	{
+		int numSamples = pwh->dwBytesRecorded / sizeof(short);
+		short* samples = (short*)pwh->lpData;
+		double rms = CalculateRMS(samples, numSamples);
+		
+		// Check if sound is above threshold
+		if (rms > silenceThreshold)
+		{
+			// Sound detected - reset silence timer
+			lastSoundTime = GetTickCount();
+			currentSilenceMs = 0;
+		}
+		else
+		{
+			// Silence detected - check if we should auto-stop
+			CheckSilenceAndAutoStop();
+		}
+	}
+	
+	// Write buffer to file (only if still recording)
+	if (isRecording && outputFilePath.Length() > 0 && pwh->dwBytesRecorded > 0)
+	{
+		FILE* fp = fopen(outputFilePath.c_str(), "ab");
+		if (fp)
+		{
+			fwrite(pwh->lpData, 1, pwh->dwBytesRecorded, fp);
+			fclose(fp);
+		}
+	}
+	
+	// Re-add buffer to queue if still recording
+	if (isRecording && hWaveIn)
+	{
+		waveInAddBuffer(hWaveIn, pwh, sizeof(::WAVEHDR));
+	}
+	else
+	{
+		printf("TAudioRecorder::ProcessBuffer() - not re-adding buffer (isRecording=%d, hWaveIn=%p)\n", isRecording, hWaveIn);
+	}
+}
+
+bool TAudioRecorder::StartRecording(AnsiString filePath, bool enableAutoStop)
+{
+	if (isRecording)
+	{
+		return false; // Already recording
+	}
+	
+	outputFilePath = filePath;
+	autoStopEnabled = enableAutoStop;
+	currentSilenceMs = 0;
+	lastSoundTime = 0; // Reset silence timer
+	
+	// Delete existing file
+	DeleteFileA(filePath.c_str());
+	
+	// Open wave input device
+	MMRESULT result = waveInOpen(&hWaveIn, WAVE_MAPPER, &wfx, (::DWORD_PTR)WaveInProc, (::DWORD_PTR)this, CALLBACK_FUNCTION);
+	if (result != MMSYSERR_NOERROR)
+	{
+		return false;
+	}
+	
+	// Allocate buffers
+	waveHeaders = new ::WAVEHDR[numBuffers];
+	int bufferSize = wfx.nAvgBytesPerSec / 2; // 0.5 second buffers
+	
+	for (int i = 0; i < numBuffers; i++)
+	{
+		ZeroMemory(&waveHeaders[i], sizeof(::WAVEHDR));
+		waveHeaders[i].lpData = new char[bufferSize];
+		waveHeaders[i].dwBufferLength = bufferSize;
+		waveInPrepareHeader(hWaveIn, &waveHeaders[i], sizeof(::WAVEHDR));
+		waveInAddBuffer(hWaveIn, &waveHeaders[i], sizeof(::WAVEHDR));
+	}
+	
+	// Write WAV header
+	FILE* fp = fopen(filePath.c_str(), "wb");
+	if (!fp)
+	{
+		StopRecording();
+		return false;
+	}
+	
+	// WAV header structure
+	struct WAVHeader
+	{
+		char riff[4] = {'R', 'I', 'F', 'F'};
+		DWORD chunkSize = 0; // Will be filled later
+		char wave[4] = {'W', 'A', 'V', 'E'};
+		char fmt[4] = {'f', 'm', 't', ' '};
+		DWORD fmtSize = 16;
+		WORD audioFormat = 1; // PCM
+		WORD numChannels = 1;
+		DWORD sampleRate = 16000;
+		DWORD byteRate = 32000;
+		WORD blockAlign = 2;
+		WORD bitsPerSample = 16;
+		char data[4] = {'d', 'a', 't', 'a'};
+		DWORD dataSize = 0; // Will be filled later
+	} header;
+	
+	fwrite(&header, 1, sizeof(header), fp);
+	fclose(fp);
+	
+	// Start recording
+	result = waveInStart(hWaveIn);
+	if (result != MMSYSERR_NOERROR)
+	{
+		StopRecording();
+		return false;
+	}
+	
+	isRecording = true;
+	return true;
+}
+
+void TAudioRecorder::StopRecording()
+{
+	if (!isRecording && !hWaveIn)
+	{
+		return;
+	}
+	
+	isRecording = false;
+	
+	if (hWaveIn)
+	{
+		waveInStop(hWaveIn);
+		waveInReset(hWaveIn);
+		
+		// Unprepare headers
+		if (waveHeaders)
+		{
+			for (int i = 0; i < numBuffers; i++)
+			{
+				waveInUnprepareHeader(hWaveIn, &waveHeaders[i], sizeof(::WAVEHDR));
+				delete[] waveHeaders[i].lpData;
+			}
+			delete[] waveHeaders;
+			waveHeaders = NULL;
+		}
+		
+		waveInClose(hWaveIn);
+		hWaveIn = NULL;
+	}
+	
+	// Update WAV file header with actual sizes
+	if (outputFilePath.Length() > 0)
+	{
+		FILE* fp = fopen(outputFilePath.c_str(), "r+b");
+		if (fp)
+		{
+			fseek(fp, 0, SEEK_END);
+			long fileSize = ftell(fp);
+			fseek(fp, 0, SEEK_SET);
+			
+			// Update chunk sizes
+			DWORD chunkSize = fileSize - 8;
+			DWORD dataSize = fileSize - 44; // Subtract header size
+			
+			fseek(fp, 4, SEEK_SET);
+			fwrite(&chunkSize, 4, 1, fp);
+			fseek(fp, 40, SEEK_SET);
+			fwrite(&dataSize, 4, 1, fp);
+			
+			fclose(fp);
+		}
+	}
+}
+//---------------------------------------------------------------------------
+// Speech Transcription Thread Implementation
+//---------------------------------------------------------------------------
+__fastcall TSpeechTranscribeThread::TSpeechTranscribeThread(AnsiString audioFile, AnsiString pythonPath, AnsiString scriptPath) : TThread(true)
+{
+	AudioFilePath = audioFile;
+	PythonPath = pythonPath;
+	TranscribeScriptPath = scriptPath;
+	TranscribedText = "";
+	TranscriptionSuccess = false;
+	FreeOnTerminate = false;
+}
+
+__fastcall TSpeechTranscribeThread::~TSpeechTranscribeThread()
+{
+}
+
+void __fastcall TSpeechTranscribeThread::Execute(void)
+{
+	STARTUPINFOA si;
+	PROCESS_INFORMATION pi;
+	HANDLE hStdOutRd, hStdOutWr;
+	SECURITY_ATTRIBUTES sa;
+	char buffer[4096];
+	DWORD bytesRead;
+	AnsiString output = "";
+
+	ZeroMemory(&si, sizeof(si));
+	si.cb = sizeof(si);
+	ZeroMemory(&pi, sizeof(pi));
+	ZeroMemory(&sa, sizeof(sa));
+	sa.nLength = sizeof(sa);
+	sa.bInheritHandle = TRUE;
+	sa.lpSecurityDescriptor = NULL;
+
+	// Create pipe for stdout
+	if (!CreatePipe(&hStdOutRd, &hStdOutWr, &sa, 0))
+	{
+		TranscriptionSuccess = false;
+		TranscribedText = "ERROR: Failed to create pipe";
+		return;
+	}
+
+	// Create separate pipe for stderr to avoid mixing with stdout
+	HANDLE hStdErrRd, hStdErrWr;
+	if (!CreatePipe(&hStdErrRd, &hStdErrWr, &sa, 0))
+	{
+		CloseHandle(hStdOutRd);
+		CloseHandle(hStdOutWr);
+		TranscriptionSuccess = false;
+		TranscribedText = "ERROR: Failed to create stderr pipe";
+		return;
+	}
+
+	si.hStdOutput = hStdOutWr;
+	si.hStdError = hStdErrWr;  // Separate stderr
+	si.dwFlags |= STARTF_USESTDHANDLES;
+
+	// Build command line: python.exe script_path audio_file
+	AnsiString commandLine = "\"" + PythonPath + "\" \"" + TranscribeScriptPath + "\" \"" + AudioFilePath + "\"";
+	
+	// Debug: Print Whisper connection info
+	printf("=== WHISPER CONNECTION DEBUG ===\n");
+	printf("Python Path: %s\n", PythonPath.c_str());
+	printf("Script Path: %s\n", TranscribeScriptPath.c_str());
+	printf("Audio File: %s\n", AudioFilePath.c_str());
+	printf("Command: %s\n", commandLine.c_str());
+	printf("================================\n");
+	
+	char* cmdLineCharArray = new char[strlen(commandLine.c_str()) + 1];
+	strcpy(cmdLineCharArray, commandLine.c_str());
+
+	if (CreateProcessA(
+		nullptr,
+		cmdLineCharArray,
+		nullptr,
+		nullptr,
+		TRUE,
+		CREATE_NO_WINDOW,
+		nullptr,
+		nullptr,
+		&si,
+		&pi))
+	{
+		CloseHandle(hStdOutWr);
+		CloseHandle(hStdErrWr);
+
+		// Read output with timeout (30 seconds - Whisper needs more time)
+		DWORD waitResult = WaitForSingleObject(pi.hProcess, 30000);
+		
+		if (waitResult == WAIT_OBJECT_0)
+		{
+			// Read stdout (transcription result)
+			while (ReadFile(hStdOutRd, buffer, sizeof(buffer) - 1, &bytesRead, NULL) && bytesRead > 0)
+			{
+				buffer[bytesRead] = '\0';
+				output += AnsiString(buffer);
+				// Debug: Print raw output from Whisper
+				printf("WHISPER stdout: %s", buffer);
+			}
+			
+			// Read stderr (error messages) - but don't use as transcription
+			AnsiString errorOutput = "";
+			while (ReadFile(hStdErrRd, buffer, sizeof(buffer) - 1, &bytesRead, NULL) && bytesRead > 0)
+			{
+				buffer[bytesRead] = '\0';
+				errorOutput += AnsiString(buffer);
+				// Debug: Print errors from Whisper
+				printf("WHISPER stderr: %s", buffer);
+			}
+			
+			// Check exit code
+			DWORD exitCode = 0;
+			GetExitCodeProcess(pi.hProcess, &exitCode);
+			
+			// Trim whitespace
+			output = output.Trim();
+			
+			if (exitCode == 0 && output.Length() > 0)
+			{
+				TranscribedText = output;
+				TranscriptionSuccess = true;
+				
+				// Debug: Print Whisper transcription result
+				printf("=== WHISPER TRANSCRIPTION SUCCESS ===\n");
+				printf("Transcribed Text: %s\n", TranscribedText.c_str());
+				printf("=====================================\n");
+			}
+			else
+			{
+				TranscriptionSuccess = false;
+				if (errorOutput.Length() > 0)
+				{
+					TranscribedText = "ERROR: " + errorOutput;
+				}
+				else if (output.Length() == 0)
+				{
+					TranscribedText = "ERROR: No transcription output. Audio may be empty or model not loaded. Please try again.";
+				}
+				else
+				{
+					TranscribedText = "ERROR: Transcription failed (exit code: " + AnsiString((int)exitCode) + ")";
+				}
+			}
+		}
+		else
+		{
+			// Timeout or error
+			TerminateProcess(pi.hProcess, 1);
+			TranscriptionSuccess = false;
+			TranscribedText = "ERROR: Transcription timeout (30s). Model may be loading - please try again.";
+		}
+
+		CloseHandle(pi.hProcess);
+		CloseHandle(pi.hThread);
+	}
+	else
+	{
+		CloseHandle(hStdOutWr);
+		CloseHandle(hStdErrWr);
+		TranscriptionSuccess = false;
+		TranscribedText = "ERROR: Failed to start transcription process. Check Python path.";
+	}
+
+	CloseHandle(hStdOutRd);
+	CloseHandle(hStdErrRd);
+	delete[] cmdLineCharArray;
+
+	// Update UI in main thread
+	Synchronize(HandleTranscriptionResult);
+}
+
+void __fastcall TSpeechTranscribeThread::HandleTranscriptionResult(void)
+{
+	if (!Form1) return;
+	
+	// Ensure recording flag is cleared
+	Form1->IsRecordingVoice = false;
+	
+	// Add transcription result to Memo1
+	if (TranscriptionSuccess && TranscribedText.Length() > 0)
+	{
+		if (Form1->Memo1)
+		{
+			Form1->Memo1->Lines->Add(TranscribedText);
+		}
+		printf("WHISPER: Transcription added to Memo1: %s\n", TranscribedText.c_str());
+		// Optionally process voice command here: Form1->ProcessVoiceCommand(TranscribedText);
+	}
+	else
+	{
+		if (Form1->Memo1)
+		{
+			Form1->Memo1->Lines->Add("Recognition failed: " + TranscribedText);
+		}
+		printf("WHISPER: Transcription failed: %s\n", TranscribedText.c_str());
+	}
+}
+//---------------------------------------------------------------------------
+// Speech Transcription Functions
+//---------------------------------------------------------------------------
+//---------------------------------------------------------------------------
+void __fastcall TForm1::ProcessVoiceCommand(AnsiString command)
+{
+	// Convert to lowercase for case-insensitive matching
+	AnsiString cmd = command.LowerCase().Trim();
+	AnsiString recognizedCommand = "";
+	
+	// Command mapping table
+	// Zoom commands
+	if (stristr(cmd.c_str(), "zoom in") != NULL)
+	{
+		ZoomInClick(NULL);
+		recognizedCommand = "Zoom In";
+	}
+	else if (stristr(cmd.c_str(), "zoom out") != NULL)
+	{
+		ZoomOutClick(NULL);
+		recognizedCommand = "Zoom Out";
+	}
+	// Map toggle
+	else if (stristr(cmd.c_str(), "map") != NULL)
+	{
+		if (stristr(cmd.c_str(), "on") != NULL || stristr(cmd.c_str(), "show") != NULL)
+		{
+			DrawMap->Checked = true;
+			recognizedCommand = "Map On";
+		}
+		else if (stristr(cmd.c_str(), "off") != NULL || stristr(cmd.c_str(), "hide") != NULL)
+		{
+			DrawMap->Checked = false;
+			recognizedCommand = "Map Off";
+		}
+	}
+	// Traffic filter
+	else if (stristr(cmd.c_str(), "traffic") != NULL)
+	{
+		if (stristr(cmd.c_str(), "filter") != NULL)
+		{
+			if (stristr(cmd.c_str(), "on") != NULL || stristr(cmd.c_str(), "enable") != NULL)
+			{
+				PurgeStale->Checked = true;
+				recognizedCommand = "Traffic Filter On";
+			}
+			else if (stristr(cmd.c_str(), "off") != NULL || stristr(cmd.c_str(), "disable") != NULL)
+			{
+				PurgeStale->Checked = false;
+				recognizedCommand = "Traffic Filter Off";
+			}
+		}
+	}
+	// Aircraft selection (e.g., "select N12345")
+	else if (stristr(cmd.c_str(), "select") != NULL)
+	{
+		// Try to extract aircraft callsign (pattern: N followed by numbers/letters)
+		const char* nPattern = stristr(cmd.c_str(), "n");
+		if (nPattern != NULL)
+		{
+			// Extract potential callsign
+			AnsiString callsign = "";
+			const char* p = nPattern;
+			int len = 0;
+			while ((*p >= '0' && *p <= '9') || (*p >= 'a' && *p <= 'z') || (*p >= 'A' && *p <= 'Z') || *p == '-')
+			{
+				callsign += *p;
+				p++;
+				len++;
+				if (len > 10) break; // Limit callsign length
+			}
+			
+			if (callsign.Length() > 1)
+			{
+				// TODO: Implement aircraft selection by callsign
+				recognizedCommand = "Select Aircraft: " + callsign.UpperCase();
+			}
+		}
+	}
+	
+	// Update UI
+	if (recognizedCommand.Length() > 0)
+	{
+		wchar_t *wtext = AnsiTowchar_t(recognizedCommand);
+		SpVoice1->Speak(wtext, SpeechVoiceSpeakFlags::SVSFlagsAsync); // Speak the recognized command
+		delete wtext;
+	}
+	
 }
 //---------------------------------------------------------------------------
 static bool DeleteFilesWithExtension(AnsiString dirPath, AnsiString extension)
@@ -2057,17 +2740,168 @@ void __fastcall TForm1::SpSharedRecoContext1Recognition(TObject *Sender, long St
           Variant StreamPosition, SpeechRecognitionType RecognitionType,
           ISpeechRecoResult *Result)
 {
- Memo1->Lines->Add( Result->PhraseInfo->GetText(0, -1, True) );
+ // SAPI recognition disabled - using Whisper instead
+ // Whisper transcription results go directly to Memo1 via TSpeechTranscribeThread::HandleTranscriptionResult
 }
 //---------------------------------------------------------------------------
 
+// Helper function to start transcription
+void TForm1::StartTranscription()
+{
+	printf("WHISPER: Starting transcription...\n");
+	
+	// Ensure Memo1 is visible
+	if (Memo1)
+	{
+		Memo1->Visible = true;
+	}
+	
+	// Get the recorded audio file path
+	if (RecordedAudioPath.Length() == 0)
+	{
+		AnsiString HomeDir = ExtractFilePath(ExtractFileDir(Application->ExeName));
+		RecordedAudioPath = HomeDir + AnsiString("..\\..\\speech\\temp_recording.wav");
+	}
+	
+	// Verify file exists and has content
+	FILE* fp = fopen(RecordedAudioPath.c_str(), "rb");
+	if (fp)
+	{
+		fseek(fp, 0, SEEK_END);
+		long fileSize = ftell(fp);
+		fclose(fp);
+		
+		if (fileSize > 44) // More than just WAV header
+		{
+			// Start transcription thread
+			if (SpeechTranscribeThread)
+			{
+				// Wait for previous thread to finish if still running
+				if (!SpeechTranscribeThread->Finished)
+				{
+					SpeechTranscribeThread->Terminate();
+					SpeechTranscribeThread->WaitFor();
+				}
+				delete SpeechTranscribeThread;
+			}
+			SpeechTranscribeThread = new TSpeechTranscribeThread(
+				RecordedAudioPath,
+				SpeechPythonPath,
+				SpeechTranscribeScriptPath
+			);
+			SpeechTranscribeThread->Start();
+		}
+		else
+		{
+			if (Memo1)
+			{
+				Memo1->Lines->Add("Error: No recorded audio");
+			}
+			printf("WHISPER ERROR: No recorded audio\n");
+		}
+	}
+	else
+	{
+		if (Memo1)
+		{
+			Memo1->Lines->Add("Error: Audio file not found");
+		}
+		printf("WHISPER ERROR: Audio file not found\n");
+	}
+}
+
+// Message handler for auto-stop recording
+void __fastcall TForm1::WMAutoStopRecording(TMessage &Message)
+{
+	printf("WHISPER: WMAutoStopRecording message received!\n");
+	
+	// Called when recording auto-stops due to silence
+	// Stop recording safely in main thread, then start transcription
+	
+	// Stop recording first - safely in main thread
+	if (AudioRecorder && AudioRecorder->IsRecording())
+	{
+		printf("WHISPER: Stopping recording from main thread...\n");
+		AudioRecorder->StopRecording();
+	}
+	
+	IsRecordingVoice = false;
+	
+	// User feedback
+	if (Memo1)
+	{
+		Memo1->Visible = true;
+		Memo1->Lines->Add("Recording auto-stopped");
+	}
+	else
+	{
+		printf("WHISPER ERROR: Memo1 is NULL!\n");
+	}
+	
+	// Start transcription immediately
+	printf("WHISPER: Starting transcription...\n");
+	StartTranscription();
+	
+	Message.Result = 0;
+}
+
 void __fastcall TForm1::LIstenClick(TObject *Sender)
 {
-    Memo1->Visible=true;
-	SpSharedRecoContext1->EventInterests = SpeechRecoEvents::SREAllEvents;
-	SRGrammar=SpSharedRecoContext1->CreateGrammar(Variant(0));
-	SRGrammar->CmdSetRuleIdState(0, SpeechRuleState::SGDSActive);
-	SRGrammar->DictationSetState(SpeechRuleState::SGDSActive);
+	printf("=== WHISPER LISTEN CLICKED ===\n");
+	
+	Memo1->Visible = true;
+	
+	if (IsRecordingVoice)
+	{
+		// Manual stop - same logic as auto-stop for consistency
+		if (AudioRecorder && AudioRecorder->IsRecording())
+		{
+			AudioRecorder->StopRecording();
+		}
+		IsRecordingVoice = false;
+		
+		// User feedback
+		if (Memo1)
+		{
+			Memo1->Lines->Add("Recording manually stopped: Transcribing...");
+		}
+		
+		StartTranscription();
+		return;
+	}
+	
+	// Start recording with Whisper
+	AnsiString HomeDir = ExtractFilePath(ExtractFileDir(Application->ExeName));
+	RecordedAudioPath = HomeDir + AnsiString("..\\..\\speech\\temp_recording.wav");
+	
+	// Ensure speech directory exists
+	AnsiString speechDir = HomeDir + AnsiString("..\\..\\speech");
+	CreateDirectoryA(speechDir.c_str(), NULL);
+	
+	// Set callback for auto-stop
+	if (AudioRecorder)
+	{
+		AudioRecorder->SetAutoStopCallback((void*)this);
+	}
+	
+	if (AudioRecorder && AudioRecorder->StartRecording(RecordedAudioPath, true))
+	{
+		IsRecordingVoice = true;
+		if (Memo1)
+		{
+			Memo1->Lines->Add("Recording...");
+		}
+		printf("WHISPER: Audio recording started with auto-stop: %s\n", RecordedAudioPath.c_str());
+	}
+	else
+	{
+		if (Memo1)
+		{
+			Memo1->Lines->Add("Error: Cannot start audio recording");
+		}
+		printf("WHISPER ERROR: Failed to start audio recording\n");
+		ShowMessage("Cannot start audio recording. Please check if microphone is connected.");
+	}
 }
 //---------------------------------------------------------------------------
 

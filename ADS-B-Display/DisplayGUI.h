@@ -27,6 +27,9 @@
 #include <System.Net.HttpClient.hpp>
 #include <System.Net.HttpClientComponent.hpp>
 #include <System.Net.URLClient.hpp>
+#include <windows.h>
+#include <mmsystem.h>
+#include <mmreg.h>
 #include "SpeechLib_OCX.h"
 #include <Vcl.OleServer.hpp>
 
@@ -96,9 +99,69 @@ public:
 	~TTCPClientSBSHandleThread();
 };
 //---------------------------------------------------------------------------
+// Audio Recording Helper Class
 //---------------------------------------------------------------------------
+class TAudioRecorder
+{
+private:
+	::HWAVEIN hWaveIn;
+	::WAVEFORMATEX wfx;
+	::WAVEHDR* waveHeaders;
+	int numBuffers;
+	bool isRecording;
+	AnsiString outputFilePath;
+	
+	// Silence detection
+	double silenceThreshold;  // RMS threshold for silence (0.0 to 1.0)
+	int silenceDurationMs;    // Duration of silence before auto-stop (milliseconds)
+	int currentSilenceMs;     // Current silence duration
+	DWORD lastSoundTime;      // Time when last sound was detected
+	bool autoStopEnabled;     // Enable automatic stop on silence
+	void* autoStopCallback;   // Callback function pointer (TForm1*)
+	
+public:
+	__fastcall TAudioRecorder();
+	__fastcall ~TAudioRecorder();
+	bool StartRecording(AnsiString filePath, bool enableAutoStop = true);
+	void StopRecording();
+	bool IsRecording() { return isRecording; }
+	AnsiString GetOutputPath() { return outputFilePath; }
+	void SetAutoStopCallback(void* callback) { autoStopCallback = callback; }
+	
+private:
+	static void CALLBACK WaveInProc(::HWAVEIN hWaveIn, UINT uMsg, ::DWORD_PTR dwInstance, ::DWORD_PTR dwParam1, ::DWORD_PTR dwParam2);
+	void ProcessBuffer(::WAVEHDR* pwh);
+	double CalculateRMS(short* samples, int numSamples);
+	void CheckSilenceAndAutoStop();
+};
+//---------------------------------------------------------------------------
+//---------------------------------------------------------------------------
+class TSpeechTranscribeThread : public TThread
+{
+private:
+	AnsiString AudioFilePath;
+	AnsiString PythonPath;
+	AnsiString TranscribeScriptPath;
+	AnsiString TranscribedText;
+	bool TranscriptionSuccess;
+	void __fastcall HandleTranscriptionResult(void);
+protected:
+	void __fastcall Execute(void);
+public:
+	__fastcall TSpeechTranscribeThread(AnsiString audioFile, AnsiString pythonPath, AnsiString scriptPath);
+	~TSpeechTranscribeThread();
+};
+//---------------------------------------------------------------------------
+//---------------------------------------------------------------------------
+// Message ID for auto-stop recording
+#define WM_AUTO_STOP_RECORDING (WM_USER + 1)
+
 class TForm1 : public TForm
 {
+private:
+	void __fastcall WMAutoStopRecording(TMessage &Message);
+	void StartTranscription(); // Helper function to start transcription
+	
 __published:	// IDE-managed Components
 	TMainMenu *MainMenu1;
 	TPanel *RightPanel;
@@ -236,6 +299,7 @@ __published:	// IDE-managed Components
           Variant StreamPosition, SpeechRecognitionType RecognitionType,
           ISpeechRecoResult *Result);
 	void __fastcall LIstenClick(TObject *Sender);
+	void __fastcall ProcessVoiceCommand(AnsiString command);
 
 private:	// User declarations
 
@@ -294,6 +358,16 @@ public:		// User declarations
 	int                        CurrentSpriteImage;
     AnsiString                 AircraftDBPathFileName;
     AnsiString                 ARTCCBoundaryDataPathFileName;
+    AnsiString                 SpeechPythonPath;
+    AnsiString                 SpeechTranscribeScriptPath;
+    TSpeechTranscribeThread   *SpeechTranscribeThread;
+    bool                       IsRecordingVoice;
+    AnsiString                 RecordedAudioPath;
+    TAudioRecorder             *AudioRecorder;
+    
+    BEGIN_MESSAGE_MAP
+        MESSAGE_HANDLER(WM_AUTO_STOP_RECORDING, TMessage, WMAutoStopRecording)
+    END_MESSAGE_MAP(TForm)
 };
 //---------------------------------------------------------------------------
 extern PACKAGE TForm1 *Form1;

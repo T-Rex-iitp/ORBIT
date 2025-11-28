@@ -1,5 +1,5 @@
 .\Win64\Release\ntds2d.o: \
-  C:\Users\admin\Desktop\t-rex\ADS-B-Display\ADS-B-DisplayPCH1.h \
+  C:\Users\admin\Desktop\AI-Enabled-IFTA\ADS-B-Display\ADS-B-DisplayPCH1.h \
   c:\program\ files\ (x86)\embarcadero\studio\23.0\include\windows\vcl\vcl.h \
   c:\program\ files\ (x86)\embarcadero\studio\23.0\include\windows\vcl\basepch0.h \
   c:\program\ files\ (x86)\embarcadero\studio\23.0\include\windows\rtl\System.hpp \
@@ -346,7 +346,7 @@
   ntds2d.cpp \
   c:\program\ files\ (x86)\embarcadero\studio\23.0\include\windows\sdk\gl\gl.h \
   c:\program\ files\ (x86)\embarcadero\studio\23.0\include\windows\sdk\gl\glu.h \
-  C:\Users\admin\Desktop\t-rex\ADS-B-Display/stb_image.h \
+  C:\Users\admin\Desktop\AI-Enabled-IFTA\ADS-B-Display/stb_image.h \
   c:\program\ files\ (x86)\embarcadero\studio\23.0\include\windows\crtl\emmintrin.h \
   c:\program\ files\ (x86)\embarcadero\studio\23.0\include\windows\crtl\xmmintrin.h \
   c:\program\ files\ (x86)\embarcadero\studio\23.0\include\windows\crtl\mmintrin.h \
@@ -354,4 +354,4 @@
   c:\program\ files\ (x86)\embarcadero\studio\23.0\include\windows\crtl\malloc.h \
   c:\program\ files\ (x86)\embarcadero\studio\23.0\include\windows\crtl\alloc.h \
   c:\program\ files\ (x86)\embarcadero\studio\23.0\include\windows\crtl\f16cintrin.h \
-  C:\Users\admin\Desktop\t-rex\ADS-B-Display/ntds2d.h
+  C:\Users\admin\Desktop\AI-Enabled-IFTA\ADS-B-Display/ntds2d.h

@@ -57,7 +57,7 @@ object Form1: TForm1
       Left = 1
       Top = 504
       Width = 248
-      Height = 147
+      Height = 190
       Align = alBottom
       TabOrder = 0
       ExplicitTop = 455

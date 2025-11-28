@@ -1,7 +1,7 @@
 .\Win64\Release\jdtrans.o: jdtrans.c \
-  C:\Users\admin\Desktop\t-rex\ADS-B-Display\Map\jpeg/jinclude.h \
-  C:\Users\admin\Desktop\t-rex\ADS-B-Display\Map\jpeg/jconfig.h \
-  C:\Users\admin\Desktop\t-rex\ADS-B-Display\Map\jpeg/jconfig.vc \
+  C:\Users\admin\Desktop\AI-Enabled-IFTA\ADS-B-Display\Map\jpeg/jinclude.h \
+  C:\Users\admin\Desktop\AI-Enabled-IFTA\ADS-B-Display\Map\jpeg/jconfig.h \
+  C:\Users\admin\Desktop\AI-Enabled-IFTA\ADS-B-Display\Map\jpeg/jconfig.vc \
   c:\program\ files\ (x86)\embarcadero\studio\23.0\include\windows\crtl\stddef.h \
   c:\program\ files\ (x86)\embarcadero\studio\23.0\include\windows\crtl\_stddef.h \
   c:\program\ files\ (x86)\embarcadero\studio\23.0\include\windows\crtl\_defs.h \
@@ -17,7 +17,7 @@
   c:\program\ files\ (x86)\embarcadero\studio\23.0\include\windows\crtl\locale.h \
   c:\program\ files\ (x86)\embarcadero\studio\23.0\include\windows\crtl\_loc.h \
   c:\program\ files\ (x86)\embarcadero\studio\23.0\include\windows\crtl\mem.h \
-  C:\Users\admin\Desktop\t-rex\ADS-B-Display\Map\jpeg/jpeglib.h \
-  C:\Users\admin\Desktop\t-rex\ADS-B-Display\Map\jpeg/jmorecfg.h \
-  C:\Users\admin\Desktop\t-rex\ADS-B-Display\Map\jpeg/jpegint.h \
-  C:\Users\admin\Desktop\t-rex\ADS-B-Display\Map\jpeg/jerror.h
+  C:\Users\admin\Desktop\AI-Enabled-IFTA\ADS-B-Display\Map\jpeg/jpeglib.h \
+  C:\Users\admin\Desktop\AI-Enabled-IFTA\ADS-B-Display\Map\jpeg/jmorecfg.h \
+  C:\Users\admin\Desktop\AI-Enabled-IFTA\ADS-B-Display\Map\jpeg/jpegint.h \
+  C:\Users\admin\Desktop\AI-Enabled-IFTA\ADS-B-Display\Map\jpeg/jerror.h
