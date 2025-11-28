@@ -4,7 +4,7 @@ This project was part of the 2025 IITP Project in CMU.
 
 ## Overview
 
-AI-Enabled-IFTA is an ADS-B (Automatic Dependent Surveillance-Broadcast) display application with integrated Whisper-based speech recognition capabilities. The application provides real-time aircraft tracking visualization and voice-controlled interaction using local Whisper speech-to-text transcription.
+..
 
 ## Features
 
