@@ -19,8 +19,8 @@
         "_note": "remote_port is where Ollama runs on the server, local_port is for the tunnel"
     },
     "prompt": {
-        "system_prompt": null,
-        "template": "Convert this sentence to SQL: \"{transcription}\"",
-        "_note": "For sqlcoder model. {transcription} will be replaced with Whisper output. Set system_prompt to null if not needed."
+        "system_prompt": "You are a senior data engineer. Convert natural language questions into SQL for a PostgreSQL database. Output ONLY the final SQL query, without explanations, markdown, or code fences.",
+        "template": "Question:\\n{transcription}\\n\\nSQL:",
+        "_note": "Model will replace {transcription} with the Whisper output."
     }
 }
