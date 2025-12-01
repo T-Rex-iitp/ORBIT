@@ -7,7 +7,8 @@
         "username": "your_username",
         "key_file": "~/.ssh/id_rsa",
         "passphrase": null,
-        "_note": "Use either key_file or password for authentication"
+        "password": null,
+        "_note": "Provide either key_file (recommended) or password for authentication"
     },
     "ollama": {
         "remote_host": "localhost",
