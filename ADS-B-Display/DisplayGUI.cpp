@@ -2365,11 +2365,6 @@ void __fastcall TSpeechTranscribeThread::Execute(void)
 			{
 				TranscribedText = output;
 				TranscriptionSuccess = true;
-				
-				// Debug: Print Whisper transcription result
-				printf("=== WHISPER TRANSCRIPTION SUCCESS ===\n");
-				printf("Transcribed Text: %s\n", TranscribedText.c_str());
-				printf("=====================================\n");
 			}
 			else
 			{
