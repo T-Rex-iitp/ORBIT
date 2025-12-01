@@ -1,4 +1,9 @@
 faster-whisper>=0.10.0
+
+# Ollama integration (SSH tunneling)
+sshtunnel>=0.4.0
+requests>=2.28.0
+
 # Optional: for GPU support
 # torch>=2.0.0
 # Optional: for audio resampling (if not using system ffmpeg)

@@ -2300,16 +2300,17 @@ void __fastcall TSpeechTranscribeThread::Execute(void)
 	si.hStdError = hStdErrWr;  // Separate stderr
 	si.dwFlags |= STARTF_USESTDHANDLES;
 
-	// Build command line: python.exe script_path audio_file
-	AnsiString commandLine = "\"" + PythonPath + "\" \"" + TranscribeScriptPath + "\" \"" + AudioFilePath + "\"";
+	// Build command line: python.exe script_path audio_file --ollama
+	// --ollama flag sends Whisper transcription to Ollama LLM via SSH tunnel
+	AnsiString commandLine = "\"" + PythonPath + "\" \"" + TranscribeScriptPath + "\" \"" + AudioFilePath + "\" --ollama";
 	
-	// Debug: Print Whisper connection info
-	printf("=== WHISPER CONNECTION DEBUG ===\n");
+	// Debug: Print Whisper + Ollama connection info
+	printf("=== WHISPER + OLLAMA CONNECTION DEBUG ===\n");
 	printf("Python Path: %s\n", PythonPath.c_str());
 	printf("Script Path: %s\n", TranscribeScriptPath.c_str());
 	printf("Audio File: %s\n", AudioFilePath.c_str());
 	printf("Command: %s\n", commandLine.c_str());
-	printf("================================\n");
+	printf("==========================================\n");
 	
 	char* cmdLineCharArray = new char[strlen(commandLine.c_str()) + 1];
 	strcpy(cmdLineCharArray, commandLine.c_str());
@@ -2329,8 +2330,8 @@ void __fastcall TSpeechTranscribeThread::Execute(void)
 		CloseHandle(hStdOutWr);
 		CloseHandle(hStdErrWr);
 
-		// Read output with timeout (30 seconds - Whisper needs more time)
-		DWORD waitResult = WaitForSingleObject(pi.hProcess, 30000);
+		// Read output with timeout (90 seconds - Whisper + Ollama needs more time)
+		DWORD waitResult = WaitForSingleObject(pi.hProcess, 90000);
 		
 		if (waitResult == WAIT_OBJECT_0)
 		{
@@ -2392,7 +2393,7 @@ void __fastcall TSpeechTranscribeThread::Execute(void)
 			// Timeout or error
 			TerminateProcess(pi.hProcess, 1);
 			TranscriptionSuccess = false;
-			TranscribedText = "ERROR: Transcription timeout (30s). Model may be loading - please try again.";
+			TranscribedText = "ERROR: Transcription timeout (90s). Whisper/Ollama may be loading - please try again.";
 		}
 
 		CloseHandle(pi.hProcess);

@@ -2,6 +2,7 @@
 """
 Whisper-based speech transcription script for ADS-B Display GUI
 Uses faster-whisper for fast local inference
+Optionally sends transcription to Ollama via SSH tunnel
 """
 
 import sys
@@ -10,12 +11,21 @@ import argparse
 import subprocess
 import tempfile
 from pathlib import Path
+from typing import Optional
 
 try:
     from faster_whisper import WhisperModel
 except ImportError:
     print("ERROR: faster-whisper not installed. Run: pip install faster-whisper", file=sys.stderr)
     sys.exit(1)
+
+# Ollama client (optional import)
+OLLAMA_AVAILABLE = False
+try:
+    from ollama_client import process_transcription, load_config, ssh_tunnel, query_ollama
+    OLLAMA_AVAILABLE = True
+except ImportError:
+    pass
 
 # Default model configuration
 DEFAULT_MODEL = "base"
@@ -155,6 +165,30 @@ def main():
         help="Force resample to 16kHz mono using ffmpeg"
     )
     
+    # Ollama integration options
+    parser.add_argument(
+        "--ollama",
+        action="store_true",
+        help="Send transcription to Ollama for AI processing"
+    )
+    parser.add_argument(
+        "--ollama-config",
+        type=str,
+        default=None,
+        help="Path to Ollama config file (default: ollama_config.json)"
+    )
+    parser.add_argument(
+        "--ollama-model",
+        type=str,
+        default=None,
+        help="Ollama model name (overrides config)"
+    )
+    parser.add_argument(
+        "--ollama-only",
+        action="store_true",
+        help="Output only Ollama response (hide transcription)"
+    )
+    
     args = parser.parse_args()
     
     # Validate input file
@@ -190,14 +224,46 @@ def main():
             language=language
         )
         
-        # Output only the transcribed text (no extra messages)
-        # Send errors to stderr, only transcription to stdout
-        if text:
+        # Output transcription (unless --ollama-only is set)
+        if text and not args.ollama_only:
             print(text, file=sys.stdout)
-            sys.stdout.flush()  # Ensure output is sent immediately
-        else:
-            print("", end="", file=sys.stdout)  # Empty output for silence
             sys.stdout.flush()
+        elif not text:
+            print("", end="", file=sys.stdout)
+            sys.stdout.flush()
+        
+        # Ollama integration: send transcription to LLM
+        if args.ollama and text:
+            if not OLLAMA_AVAILABLE:
+                print("ERROR: Ollama client not available. Install required packages: pip install sshtunnel requests", file=sys.stderr)
+                sys.exit(1)
+            
+            try:
+                print("OLLAMA: Processing transcription with AI...", file=sys.stderr)
+                sys.stderr.flush()
+                
+                ollama_response = process_transcription(
+                    transcription=text,
+                    config_path=args.ollama_config,
+                    model=args.ollama_model
+                )
+                
+                if ollama_response:
+                    # Separator between transcription and AI response
+                    if not args.ollama_only:
+                        print("\n--- AI Response ---", file=sys.stdout)
+                    print(ollama_response, file=sys.stdout)
+                    sys.stdout.flush()
+                    
+                    print(f"OLLAMA: AI response output complete", file=sys.stderr)
+                    sys.stderr.flush()
+                    
+            except FileNotFoundError as e:
+                print(f"OLLAMA ERROR: Config file not found - {e}", file=sys.stderr)
+                sys.stderr.flush()
+            except Exception as e:
+                print(f"OLLAMA ERROR: {str(e)}", file=sys.stderr)
+                sys.stderr.flush()
         
     except Exception as e:
         # Send all errors to stderr, not stdout

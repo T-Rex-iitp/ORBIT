@@ -1,0 +1,25 @@
+{
+    "_comment": "Copy this file to ollama_config.json and fill in your values",
+    
+    "ssh": {
+        "host": "your-server.com",
+        "port": 22,
+        "username": "your_username",
+        "key_file": "~/.ssh/id_rsa",
+        "passphrase": null,
+        "_note": "Use either key_file or password for authentication"
+    },
+    "ollama": {
+        "remote_host": "localhost",
+        "remote_port": 11434,
+        "local_port": 11434,
+        "model": "sqlcoder:7b-2",
+        "timeout": 60,
+        "_note": "remote_port is where Ollama runs on the server, local_port is for the tunnel"
+    },
+    "prompt": {
+        "system_prompt": null,
+        "template": "Convert this sentence to SQL: \"{transcription}\"",
+        "_note": "For sqlcoder model. {transcription} will be replaced with Whisper output. Set system_prompt to null if not needed."
+    }
+}
