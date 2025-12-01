@@ -14,7 +14,7 @@
         "remote_host": "localhost",
         "remote_port": 11434,
         "local_port": 11434,
-        "model": "sqlcoder:7b-2",
+        "model": "pxlksr/defog_sqlcoder-7b-2:Q4_K",
         "timeout": 60,
         "_note": "remote_port is where Ollama runs on the server, local_port is for the tunnel"
     },
