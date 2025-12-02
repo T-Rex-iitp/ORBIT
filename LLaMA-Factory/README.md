@@ -2,7 +2,56 @@
 
 이 문서는 [LLaMA-Factory](https://github.com/hiyouga/LLaMA-Factory)를 사용하여 **GPT-OSS** 모델을 다운로드하고 추론(Chat)을 실행하는 방법을 설명합니다. 자세한 사항은 아래 문서를 참고해 환경 설정등을 수행해 주시면 됩니다
 
-- GPT-OSS 설치 이후에는 
+
+## Requirement
+
+| Mandatory    | Minimum | Recommend |
+| ------------ | ------- | --------- |
+| python       | 3.9     | 3.10      |
+| torch        | 2.0.0   | 2.6.0     |
+| torchvision  | 0.15.0  | 0.21.0    |
+| transformers | 4.49.0  | 4.50.0    |
+| datasets     | 2.16.0  | 3.2.0     |
+| accelerate   | 0.34.0  | 1.2.1     |
+| peft         | 0.14.0  | 0.15.1    |
+| trl          | 0.8.6   | 0.9.6     |
+
+| Optional     | Minimum | Recommend |
+| ------------ | ------- | --------- |
+| CUDA         | 11.6    | 12.2      |
+| deepspeed    | 0.10.0  | 0.16.4    |
+| bitsandbytes | 0.39.0  | 0.43.1    |
+| vllm         | 0.4.3   | 0.8.2     |
+| flash-attn   | 2.5.6   | 2.7.2     |
+
+
+깃클론 이후 [https://github.com/hiyouga/LLaMA-Factory] requirements.txt 를 설치해주시면 됩니다
+
+## Getting Started
+
+### Installation
+
+> [!IMPORTANT]
+> Installation is mandatory.
+
+#### Install from Source
+
+```bash
+git clone --depth 1 https://github.com/hiyouga/LLaMA-Factory.git
+cd LLaMA-Factory
+pip install -e ".[torch,metrics]" --no-build-isolation
+```
+
+GPT-OSS 설치 [https://huggingface.co/openai/gpt-oss-20b]
+```bash
+# gpt-oss-20b
+huggingface-cli download openai/gpt-oss-20b --include "original/*" --local-dir gpt-oss-20b/
+pip install gpt-oss
+python -m gpt_oss.chat model/
+
+```
+
+- GPT-OSS 설치 이후에는 (CHAT , 대량의 데이터로 inference도 가능합니다 )
 ```bash
 llamafactory-cli chat \
   --model_name_or_path "GPT-oss Path" \
