@@ -12,7 +12,7 @@ llamafactory-cli chat \
 ```
 
 아래는 실행 화면 예시입니다. 실시간 채팅이 가능합니다
-![실행 예시](/data1/subeen/AI-Enabled-IFTA/LLaMA-Factory/example.png)
+![실행 예시](./example.png)
 
 
 [![GitHub Repo stars](https://img.shields.io/github/stars/hiyouga/LLaMA-Factory?style=social)](https://github.com/hiyouga/LLaMA-Factory/stargazers)
