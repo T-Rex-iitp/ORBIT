@@ -13,8 +13,8 @@ pip install "openai>=1.0.0"             langchain             langchain-openai  
 > ⚠️ 이 명령은 **별도 터미널에서 계속 켜둔 상태**로 사용합니다.
 
 ```bash
-cd /data1/subeen/LLaMA-Factory
-conda activate hyndai
+cd ./LLaMA-Factory
+conda activate your envs
 
 API_PORT=8000 llamafactory-cli api   --model_name_or_path ./weights/gpt-oss-20b   --template gpt   --infer_backend huggingface   --trust_remote_code true
 ```
