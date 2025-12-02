@@ -10,8 +10,8 @@ from langchain_community.embeddings import HuggingFaceEmbeddings
 # ================================
 # 0. 경로 설정 (네 환경에 맞게 조절)
 # ================================
-DOC_DIR = "/data1/subeen/AI-Enabled-IFTA/LLaMA-Factory/RAG_docs"          # RAG에 쓸 문서 폴더
-DB_DIR = "/data1/subeen/AI-Enabled-IFTA/LLaMA-Factory/RAG_DB"      # 벡터DB 저장 폴더
+DOC_DIR = "./AI-Enabled-IFTA/LLaMA-Factory/RAG_docs"          # RAG에 쓸 문서 폴더
+DB_DIR = "./AI-Enabled-IFTA/LLaMA-Factory/RAG_DB"      # 벡터DB 저장 폴더
 
 BASE_URL = "http://localhost:8000/v1"       # LLaMA-Factory API 서버 주소
 API_KEY = "EMPTY"                           # 아무 문자열이나 OK
@@ -21,7 +21,7 @@ API_KEY = "EMPTY"                           # 아무 문자열이나 OK
 # ================================
 # └── 이 전에 다른 터미널에서 반드시:
 # API_PORT=8000 llamafactory-cli api \
-#   --model_name_or_path /data1/seonggyun/weights/gpt-oss \
+#   --model_name_or_path ./weights/gpt-oss \
 #   --template gpt \
 #   --infer_backend huggingface \
 #   --trust_remote_code true
