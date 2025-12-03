@@ -8,11 +8,14 @@ import os
 import winsound
 import sys
 from google.cloud import bigquery
+
+print(sys.argv)
 def read_csv_file(filename):
 
             try:
                 print(f"Read file: {filename}")
-                with open(global_filepath+filename, "rb") as source_file:
+                file_path = os.path.join(global_filepath, filename) if not global_filepath.endswith(os.sep) else global_filepath + filename
+                with open(file_path, "rb") as source_file:
                     job = client.load_table_from_file(
                         source_file, 
                         table_id, 
@@ -20,14 +23,13 @@ def read_csv_file(filename):
                     )
                 job.result()  # Waits for the job to complete.
                 # Delete file
-                if os.path.exists(global_filepath+filename):
-                   os.remove(global_filepath+filename)
-                   print(f"File '{global_filepath+filename}' deleted successfully.")
+                if os.path.exists(file_path):
+                   os.remove(file_path)
+                   print(f"File '{file_path}' deleted successfully.")
                 return 0
             except Exception as e:
                 print(f"Error reading file {filename}: {e}")
                 return 1
-
 
 if len(sys.argv) == 3:  
    global_filepath = sys.argv[1]
@@ -40,16 +42,14 @@ else:
 current_directory = os.getcwd()
 print(current_directory)
 # Set credentials
-api_key = global_filepath+"YourJsonFile.json"
+api_key = os.path.join(global_filepath, "t-rex.json")
 os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = api_key
 
 # Construct a BigQuery client object.
 client = bigquery.Client()
 
-
 # Set table_id to the ID of the table.
-table_id = "scs-lg-solvit.SBS_Data.FirstRun"
-
+table_id = "iitp-class-team-4-473114.ADSB.Flight"
 
 job_config = bigquery.LoadJobConfig(
     source_format=bigquery.SourceFormat.CSV,

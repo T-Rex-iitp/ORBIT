@@ -1,1 +1,4 @@
 ".DS_Store" 
+speech/ollama_config.json
+ADS-B-Display/BigQuery/t-rex.json
+ADS-B-Display/BigQuery/BigQuery.log

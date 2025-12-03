@@ -42,6 +42,10 @@
 
 #define BIG_QUERY_UPLOAD_COUNT 50000
 #define BIG_QUERY_RUN_FILENAME  "SimpleCSVtoBigQuery.py"
+// #define BIG_QUERY_CONDA_ACTIVATE_ENV "BIGQUERY_CONDA_ACTIVATE"
+// #define BIG_QUERY_CONDA_ENV_NAME_ENV "BIGQUERY_CONDA_ENV"
+// #define BIG_QUERY_CONDA_ACTIVATE_DEFAULT "C:\\Users\\admin\\miniconda3\\Scripts\\activate.bat"
+// #define BIG_QUERY_CONDA_ENV_DEFAULT "iitp"
 #define   LEFT_MOUSE_DOWN   1
 #define   RIGHT_MOUSE_DOWN  2
 #define   MIDDLE_MOUSE_DOWN 4
