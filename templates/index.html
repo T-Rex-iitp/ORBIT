@@ -1,0 +1,588 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Local LLM Chat</title>
+    <link rel="stylesheet" href="/static/style.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/11.1.1/marked.min.js"></script>
+</head>
+<body>
+    <div class="container">
+        <!-- Sidebar -->
+        <aside class="sidebar">
+            <div class="sidebar-header">
+                <h1>Local LLM Chat</h1>
+            </div>
+
+            <div class="settings-section">
+                <h3>Model Selection</h3>
+                <div class="model-controls">
+                    <select id="model-select">
+                        <option value="">-- Select Model --</option>
+                    </select>
+                    <button id="refresh-models" class="btn-icon" title="Refresh models">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M23 4v6h-6M1 20v-6h6"/>
+                            <path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/>
+                        </svg>
+                    </button>
+                    <button id="set-default-btn" class="btn-icon" title="Set as default">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/>
+                        </svg>
+                    </button>
+                </div>
+                <div id="model-info" class="model-info"></div>
+            </div>
+
+            <div class="settings-section">
+                <h3>
+                    <span>Model Manager</span>
+                    <button id="toggle-model-manager" class="btn-icon-small">+</button>
+                </h3>
+                <div id="model-manager-panel" class="collapsible-panel">
+                    <!-- Add New Model -->
+                    <div class="sub-section">
+                        <h4>Add Model to List</h4>
+                        <label>
+                            <span>Model Name</span>
+                            <input type="text" id="add-model-name" placeholder="my-model">
+                        </label>
+                        <label>
+                            <span>Path / Ollama Name</span>
+                            <input type="text" id="add-model-path" placeholder="ollama:llama3.2 or /path/to/model.gguf">
+                        </label>
+                        <label>
+                            <span>Description</span>
+                            <input type="text" id="add-model-desc" placeholder="My custom model">
+                        </label>
+                        <button id="add-model-btn" class="btn-secondary">Add Model</button>
+                    </div>
+
+                    <!-- Remove Model -->
+                    <div class="sub-section">
+                        <h4>Remove Model</h4>
+                        <div class="model-controls">
+                            <select id="remove-model-select">
+                                <option value="">-- Select --</option>
+                            </select>
+                            <button id="remove-model-btn" class="btn-icon btn-danger-icon" title="Remove">
+                                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <path d="M3 6h18M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/>
+                                </svg>
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Pull from Ollama -->
+                    <div class="sub-section">
+                        <h4>Pull from Ollama</h4>
+                        <label>
+                            <span>Model (e.g., llama3.2, mistral)</span>
+                            <input type="text" id="pull-model-name" placeholder="llama3.2">
+                        </label>
+                        <button id="pull-model" class="btn-secondary">Pull Model</button>
+                        <div id="pull-status" class="status-message"></div>
+                    </div>
+
+                    <!-- Load GGUF -->
+                    <div class="sub-section">
+                        <h4>Load GGUF File</h4>
+                        <label>
+                            <span>GGUF Path</span>
+                            <input type="text" id="model-path" placeholder="/path/to/model.gguf">
+                        </label>
+                        <label>
+                            <span>Name</span>
+                            <input type="text" id="custom-model-name" placeholder="my-gguf-model">
+                        </label>
+                        <button id="load-custom-model" class="btn-secondary">Load GGUF</button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="settings-section">
+                <h3>Settings</h3>
+                <label>
+                    <span>Ollama URL</span>
+                    <input type="text" id="ollama-url" value="http://localhost:11434" placeholder="http://localhost:11434">
+                </label>
+            </div>
+
+            <div class="sidebar-footer">
+                <button id="new-chat" class="btn-primary">+ New Chat</button>
+                <button id="clear-history" class="btn-danger">Clear History</button>
+            </div>
+        </aside>
+
+        <!-- Main Chat Area -->
+        <main class="chat-area">
+            <div class="chat-header">
+                <span id="current-model">No model selected</span>
+                <span id="connection-status" class="status-indicator disconnected">Disconnected</span>
+            </div>
+
+            <div class="chat-messages" id="chat-messages">
+                <div class="welcome-message">
+                    <h2>Welcome to Local LLM Chat</h2>
+                    <p>Select a model from the sidebar to start chatting</p>
+                    <div class="quick-tips">
+                        <h4>Quick Tips:</h4>
+                        <ul>
+                            <li>Make sure Ollama is running: <code>ollama serve</code></li>
+                            <li>Add models in Model Manager</li>
+                            <li>Set a default model with the star button</li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+
+            <div class="chat-input-container">
+                <div class="input-wrapper">
+                    <textarea id="message-input" placeholder="Type your message... (Shift+Enter for new line)" rows="1"></textarea>
+                    <button id="send-btn" class="send-button" disabled>
+                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/>
+                        </svg>
+                    </button>
+                </div>
+                <div class="input-hint">Press Enter to send, Shift+Enter for new line</div>
+            </div>
+        </main>
+    </div>
+
+    <script>
+        // State
+        let currentModel = '';
+        let messages = [];
+        let isStreaming = false;
+        let modelData = { models: [], default_model: null, aliases: {} };
+
+        // DOM Elements
+        const ollamaUrl = document.getElementById('ollama-url');
+        const modelSelect = document.getElementById('model-select');
+        const refreshModelsBtn = document.getElementById('refresh-models');
+        const setDefaultBtn = document.getElementById('set-default-btn');
+        const modelInfo = document.getElementById('model-info');
+        const toggleModelManager = document.getElementById('toggle-model-manager');
+        const modelManagerPanel = document.getElementById('model-manager-panel');
+        const addModelName = document.getElementById('add-model-name');
+        const addModelPath = document.getElementById('add-model-path');
+        const addModelDesc = document.getElementById('add-model-desc');
+        const addModelBtn = document.getElementById('add-model-btn');
+        const removeModelSelect = document.getElementById('remove-model-select');
+        const removeModelBtn = document.getElementById('remove-model-btn');
+        const modelPath = document.getElementById('model-path');
+        const customModelName = document.getElementById('custom-model-name');
+        const loadCustomModelBtn = document.getElementById('load-custom-model');
+        const pullModelName = document.getElementById('pull-model-name');
+        const pullModelBtn = document.getElementById('pull-model');
+        const pullStatus = document.getElementById('pull-status');
+        const newChatBtn = document.getElementById('new-chat');
+        const clearHistoryBtn = document.getElementById('clear-history');
+        const chatMessages = document.getElementById('chat-messages');
+        const messageInput = document.getElementById('message-input');
+        const sendBtn = document.getElementById('send-btn');
+        const currentModelSpan = document.getElementById('current-model');
+        const connectionStatus = document.getElementById('connection-status');
+
+        // Configure marked
+        marked.setOptions({
+            highlight: function(code, lang) {
+                if (lang && hljs.getLanguage(lang)) {
+                    return hljs.highlight(code, { language: lang }).value;
+                }
+                return hljs.highlightAuto(code).value;
+            },
+            breaks: true
+        });
+
+        // Initialize
+        document.addEventListener('DOMContentLoaded', () => {
+            loadModels();
+            setupEventListeners();
+            autoResizeTextarea();
+        });
+
+        function setupEventListeners() {
+            refreshModelsBtn.addEventListener('click', loadModels);
+            modelSelect.addEventListener('change', onModelChange);
+            setDefaultBtn.addEventListener('click', setDefaultModel);
+            toggleModelManager.addEventListener('click', togglePanel);
+            addModelBtn.addEventListener('click', addModel);
+            removeModelBtn.addEventListener('click', removeModel);
+            loadCustomModelBtn.addEventListener('click', loadCustomModel);
+            pullModelBtn.addEventListener('click', pullModel);
+            newChatBtn.addEventListener('click', newChat);
+            clearHistoryBtn.addEventListener('click', clearHistory);
+            sendBtn.addEventListener('click', sendMessage);
+            messageInput.addEventListener('keydown', handleKeyDown);
+            messageInput.addEventListener('input', () => {
+                autoResizeTextarea();
+                updateSendButton();
+            });
+            ollamaUrl.addEventListener('change', loadModels);
+        }
+
+        function togglePanel() {
+            modelManagerPanel.classList.toggle('open');
+            toggleModelManager.textContent = modelManagerPanel.classList.contains('open') ? '-' : '+';
+        }
+
+        function autoResizeTextarea() {
+            messageInput.style.height = 'auto';
+            messageInput.style.height = Math.min(messageInput.scrollHeight, 200) + 'px';
+        }
+
+        function updateSendButton() {
+            sendBtn.disabled = !messageInput.value.trim() || !currentModel || isStreaming;
+        }
+
+        async function loadModels() {
+            try {
+                const response = await fetch(`/api/models?ollama_url=${encodeURIComponent(ollamaUrl.value)}`);
+                const data = await response.json();
+
+                modelSelect.innerHTML = '<option value="">-- Select Model --</option>';
+                removeModelSelect.innerHTML = '<option value="">-- Select --</option>';
+
+                if (data.success) {
+                    modelData = data;
+
+                    data.models.forEach(model => {
+                        // Main select
+                        const option = document.createElement('option');
+                        option.value = model.name;
+                        const isDefault = model.name === data.default_model;
+                        const typeTag = model.type === 'ollama' ? '[O]' : '[C]';
+                        option.textContent = `${typeTag} ${model.name}${isDefault ? ' (default)' : ''}`;
+                        modelSelect.appendChild(option);
+
+                        // Remove select (only custom)
+                        if (model.type === 'custom') {
+                            const removeOption = document.createElement('option');
+                            removeOption.value = model.name;
+                            removeOption.textContent = model.name;
+                            removeModelSelect.appendChild(removeOption);
+                        }
+                    });
+
+                    // Select default model
+                    if (data.default_model && !currentModel) {
+                        modelSelect.value = data.default_model;
+                        onModelChange();
+                    }
+
+                    connectionStatus.textContent = `Connected (${data.models.length} models)`;
+                    connectionStatus.className = 'status-indicator connected';
+                } else {
+                    connectionStatus.textContent = data.error || 'No models';
+                    connectionStatus.className = 'status-indicator disconnected';
+                }
+            } catch (error) {
+                connectionStatus.textContent = 'Connection Error';
+                connectionStatus.className = 'status-indicator disconnected';
+            }
+        }
+
+        function onModelChange() {
+            currentModel = modelSelect.value;
+            currentModelSpan.textContent = currentModel || 'No model selected';
+
+            // Show model info
+            const model = modelData.models.find(m => m.name === currentModel);
+            if (model) {
+                modelInfo.innerHTML = `
+                    <div class="info-row"><span>Type:</span> ${model.type}</div>
+                    ${model.description ? `<div class="info-row"><span>Desc:</span> ${model.description}</div>` : ''}
+                    ${model.path ? `<div class="info-row"><span>Path:</span> ${model.path}</div>` : ''}
+                `;
+            } else {
+                modelInfo.innerHTML = '';
+            }
+
+            updateSendButton();
+        }
+
+        async function setDefaultModel() {
+            if (!currentModel) {
+                alert('Select a model first');
+                return;
+            }
+
+            try {
+                await fetch('/api/models/default', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ model: currentModel })
+                });
+                await loadModels();
+                alert(`"${currentModel}" set as default`);
+            } catch (error) {
+                alert(`Error: ${error.message}`);
+            }
+        }
+
+        async function addModel() {
+            const name = addModelName.value.trim();
+            const path = addModelPath.value.trim();
+            const desc = addModelDesc.value.trim();
+
+            if (!name) {
+                alert('Enter model name');
+                return;
+            }
+
+            try {
+                const response = await fetch('/api/models/add', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name, path, description: desc })
+                });
+                const data = await response.json();
+
+                if (data.success) {
+                    addModelName.value = '';
+                    addModelPath.value = '';
+                    addModelDesc.value = '';
+                    await loadModels();
+                    alert('Model added!');
+                } else {
+                    alert(`Error: ${data.error}`);
+                }
+            } catch (error) {
+                alert(`Error: ${error.message}`);
+            }
+        }
+
+        async function removeModel() {
+            const name = removeModelSelect.value;
+            if (!name) {
+                alert('Select a model to remove');
+                return;
+            }
+
+            if (!confirm(`Remove "${name}" from the list?`)) return;
+
+            try {
+                const response = await fetch('/api/models/remove', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name })
+                });
+                const data = await response.json();
+
+                if (data.success) {
+                    await loadModels();
+                    alert('Model removed');
+                } else {
+                    alert(`Error: ${data.error}`);
+                }
+            } catch (error) {
+                alert(`Error: ${error.message}`);
+            }
+        }
+
+        async function loadCustomModel() {
+            const path = modelPath.value.trim();
+            const name = customModelName.value.trim() || 'custom-model';
+
+            if (!path) {
+                alert('Enter GGUF file path');
+                return;
+            }
+
+            loadCustomModelBtn.disabled = true;
+            loadCustomModelBtn.textContent = 'Loading...';
+
+            try {
+                const response = await fetch('/api/custom-model', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        model_path: path,
+                        model_name: name,
+                        ollama_url: ollamaUrl.value
+                    })
+                });
+                const data = await response.json();
+
+                if (data.success) {
+                    alert(`"${name}" loaded!`);
+                    await loadModels();
+                    modelSelect.value = name;
+                    onModelChange();
+                } else {
+                    alert(`Error: ${data.error}`);
+                }
+            } catch (error) {
+                alert(`Error: ${error.message}`);
+            } finally {
+                loadCustomModelBtn.disabled = false;
+                loadCustomModelBtn.textContent = 'Load GGUF';
+            }
+        }
+
+        async function pullModel() {
+            const modelName = pullModelName.value.trim();
+            if (!modelName) {
+                alert('Enter model name');
+                return;
+            }
+
+            pullModelBtn.disabled = true;
+            pullStatus.textContent = 'Starting...';
+            pullStatus.style.display = 'block';
+
+            try {
+                const response = await fetch('/api/pull', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ model: modelName, ollama_url: ollamaUrl.value })
+                });
+
+                const reader = response.body.getReader();
+                const decoder = new TextDecoder();
+
+                while (true) {
+                    const { value, done } = await reader.read();
+                    if (done) break;
+
+                    const text = decoder.decode(value);
+                    for (const line of text.split('\n')) {
+                        if (line.startsWith('data: ')) {
+                            try {
+                                const data = JSON.parse(line.slice(6));
+                                if (data.status) {
+                                    let statusText = data.status;
+                                    if (data.completed && data.total) {
+                                        const percent = Math.round((data.completed / data.total) * 100);
+                                        statusText += ` ${percent}%`;
+                                    }
+                                    pullStatus.textContent = statusText;
+                                }
+                                if (data.error) pullStatus.textContent = `Error: ${data.error}`;
+                            } catch (e) {}
+                        }
+                    }
+                }
+
+                pullStatus.textContent = 'Complete!';
+                await loadModels();
+                setTimeout(() => { pullStatus.style.display = 'none'; }, 3000);
+            } catch (error) {
+                pullStatus.textContent = `Error: ${error.message}`;
+            } finally {
+                pullModelBtn.disabled = false;
+            }
+        }
+
+        function newChat() {
+            messages = [];
+            chatMessages.innerHTML = `
+                <div class="welcome-message">
+                    <h2>New Chat</h2>
+                    <p>Type your message below</p>
+                </div>
+            `;
+        }
+
+        function clearHistory() {
+            if (confirm('Clear chat?')) newChat();
+        }
+
+        function handleKeyDown(e) {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                if (!sendBtn.disabled) sendMessage();
+            }
+        }
+
+        async function sendMessage() {
+            const content = messageInput.value.trim();
+            if (!content || !currentModel || isStreaming) return;
+
+            messages.push({ role: 'user', content });
+            appendMessage('user', content);
+
+            messageInput.value = '';
+            autoResizeTextarea();
+            updateSendButton();
+
+            isStreaming = true;
+            const assistantDiv = appendMessage('assistant', '');
+            const contentDiv = assistantDiv.querySelector('.message-content');
+
+            try {
+                const response = await fetch('/api/chat', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        model: currentModel,
+                        messages: messages,
+                        ollama_url: ollamaUrl.value
+                    })
+                });
+
+                const reader = response.body.getReader();
+                const decoder = new TextDecoder();
+                let fullResponse = '';
+
+                while (true) {
+                    const { value, done } = await reader.read();
+                    if (done) break;
+
+                    const text = decoder.decode(value);
+                    for (const line of text.split('\n')) {
+                        if (line.startsWith('data: ')) {
+                            try {
+                                const data = JSON.parse(line.slice(6));
+                                if (data.content) {
+                                    fullResponse += data.content;
+                                    contentDiv.innerHTML = marked.parse(fullResponse);
+                                    contentDiv.querySelectorAll('pre code').forEach(block => hljs.highlightElement(block));
+                                    chatMessages.scrollTop = chatMessages.scrollHeight;
+                                }
+                                if (data.error) {
+                                    contentDiv.innerHTML = `<span class="error">Error: ${data.error}</span>`;
+                                }
+                            } catch (e) {}
+                        }
+                    }
+                }
+
+                messages.push({ role: 'assistant', content: fullResponse });
+            } catch (error) {
+                contentDiv.innerHTML = `<span class="error">Error: ${error.message}</span>`;
+            } finally {
+                isStreaming = false;
+                updateSendButton();
+            }
+        }
+
+        function appendMessage(role, content) {
+            const welcome = chatMessages.querySelector('.welcome-message');
+            if (welcome) welcome.remove();
+
+            const div = document.createElement('div');
+            div.className = `message ${role}`;
+            div.innerHTML = `
+                <div class="message-avatar">${role === 'user' ? 'You' : 'AI'}</div>
+                <div class="message-content">${role === 'user' ? escapeHtml(content) : (content ? marked.parse(content) : '<span class="typing">Thinking...</span>')}</div>
+            `;
+            chatMessages.appendChild(div);
+            chatMessages.scrollTop = chatMessages.scrollHeight;
+            return div;
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML.replace(/\n/g, '<br>');
+        }
+    </script>
+</body>
+</html>

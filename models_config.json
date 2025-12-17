@@ -1,0 +1,36 @@
+{
+  "ollama_url": "http://localhost:11434",
+  "custom_models": [
+    {
+      "name": "deepseek-r1",
+      "path": "ollama:deepseek-r1",
+      "description": "DeepSeek R1 Reasoning Model"
+    },
+    {
+      "name": "gemma3",
+      "path": "ollama:gemma3",
+      "description": "Google Gemma 3"
+    },
+    {
+      "name": "llama4",
+      "path": "ollama:llama4",
+      "description": "Meta LLaMA 4"
+    },
+    {
+      "name": "phi4",
+      "path": "ollama:phi4",
+      "description": "Microsoft Phi-4"
+    }
+  ],
+  "model_aliases": {
+    "gpt": "llama4",
+    "claude": "deepseek-r1"
+  },
+  "default_model": "deepseek-r1",
+  "model_settings": {
+    "deepseek-r1": {
+      "temperature": 0.7,
+      "context_length": 4096
+    }
+  }
+}
