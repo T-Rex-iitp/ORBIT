@@ -262,6 +262,158 @@ body {
     color: white;
 }
 
+/* RAG Styles */
+.rag-toggle {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-top: 10px;
+}
+
+.toggle-label {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    cursor: pointer;
+}
+
+.toggle-label input[type="checkbox"] {
+    width: 18px;
+    height: 18px;
+    accent-color: var(--accent);
+}
+
+.badge {
+    background-color: var(--bg-tertiary);
+    padding: 4px 8px;
+    border-radius: 12px;
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+}
+
+.status-message.success {
+    color: var(--success);
+    background-color: rgba(76, 175, 80, 0.1);
+}
+
+.status-message.error {
+    color: var(--error);
+    background-color: rgba(244, 67, 54, 0.1);
+}
+
+.search-results {
+    margin-top: 10px;
+    max-height: 200px;
+    overflow-y: auto;
+}
+
+.search-result {
+    background-color: var(--bg-secondary);
+    padding: 8px;
+    border-radius: 6px;
+    margin-bottom: 8px;
+    font-size: 0.8rem;
+}
+
+.result-header {
+    color: var(--accent);
+    font-weight: 600;
+    margin-bottom: 4px;
+}
+
+.result-content {
+    color: var(--text-secondary);
+    line-height: 1.4;
+}
+
+.no-results, .loading {
+    color: var(--text-secondary);
+    text-align: center;
+    padding: 10px;
+    font-size: 0.85rem;
+}
+
+/* BigQuery Schema Styles */
+.schema-info {
+    background-color: var(--bg-primary);
+    border-radius: 8px;
+    padding: 12px;
+    margin-top: 10px;
+}
+
+.schema-header {
+    color: var(--accent);
+    font-weight: 600;
+    font-size: 0.85rem;
+    margin-bottom: 8px;
+    padding-bottom: 6px;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.schema-columns {
+    max-height: 150px;
+    overflow-y: auto;
+}
+
+.schema-col {
+    display: flex;
+    justify-content: space-between;
+    padding: 4px 0;
+    font-size: 0.8rem;
+    border-bottom: 1px solid rgba(255,255,255,0.05);
+}
+
+.schema-col:last-child {
+    border-bottom: none;
+}
+
+.schema-col .col-name {
+    color: var(--text-primary);
+    font-family: 'Monaco', 'Menlo', monospace;
+}
+
+.schema-col .col-type {
+    color: var(--text-secondary);
+    font-size: 0.75rem;
+}
+
+/* BigQuery Table List */
+.bq-tables-list {
+    max-height: 120px;
+    overflow-y: auto;
+    margin-top: 8px;
+}
+
+.bq-table-item {
+    padding: 6px 10px;
+    background-color: var(--bg-secondary);
+    border-radius: 4px;
+    margin-bottom: 4px;
+    cursor: pointer;
+    font-size: 0.8rem;
+    transition: all 0.2s;
+}
+
+.bq-table-item:hover {
+    background-color: var(--bg-tertiary);
+    color: var(--accent);
+}
+
+.bq-table-item.selected {
+    background-color: var(--bg-tertiary);
+    border-left: 3px solid var(--accent);
+}
+
+.rag-badge {
+    background-color: var(--bg-tertiary);
+    padding: 6px 10px;
+    border-radius: 6px;
+    font-size: 0.75rem;
+    color: var(--accent);
+    margin-bottom: 10px;
+    display: inline-block;
+}
+
 .sidebar-footer {
     padding: 15px 20px;
     margin-top: auto;

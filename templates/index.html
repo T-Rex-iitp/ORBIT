@@ -105,6 +105,78 @@
             </div>
 
             <div class="settings-section">
+                <h3>
+                    <span>RAG (BigQuery)</span>
+                    <button id="toggle-rag-panel" class="btn-icon-small">+</button>
+                </h3>
+                <div class="rag-toggle">
+                    <label class="toggle-label">
+                        <input type="checkbox" id="use-rag" checked>
+                        <span>Use RAG Context</span>
+                    </label>
+                    <span id="rag-doc-count" class="badge">0 docs</span>
+                </div>
+                <div id="rag-panel" class="collapsible-panel">
+                    <!-- BigQuery Connection -->
+                    <div class="sub-section">
+                        <h4>BigQuery Connection</h4>
+                        <label>
+                            <span>Project ID</span>
+                            <input type="text" id="bq-project" placeholder="iitp-class-team-4-473114">
+                        </label>
+                        <label>
+                            <span>Dataset</span>
+                            <input type="text" id="bq-dataset" placeholder="ADSB">
+                        </label>
+                        <button id="connect-bq" class="btn-secondary">Connect BigQuery</button>
+                        <div id="bq-status" class="status-message"></div>
+                    </div>
+
+                    <!-- Tables List -->
+                    <div class="sub-section">
+                        <h4>Tables</h4>
+                        <div class="model-controls">
+                            <select id="bq-table-select">
+                                <option value="">-- Select Table --</option>
+                            </select>
+                            <button id="load-tables-btn" class="btn-icon" title="Refresh">
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <path d="M23 4v6h-6M1 20v-6h6"/>
+                                </svg>
+                            </button>
+                        </div>
+                        <div id="table-schema" class="schema-info"></div>
+                    </div>
+
+                    <!-- Index Table -->
+                    <div class="sub-section">
+                        <h4>Index for RAG</h4>
+                        <label>
+                            <span>Columns to Index (comma separated)</span>
+                            <input type="text" id="bq-index-columns" placeholder="HexIdent, Latitude, Longitude">
+                        </label>
+                        <label>
+                            <span>Limit Rows</span>
+                            <input type="number" id="bq-index-limit" value="100" min="1" max="10000">
+                        </label>
+                        <button id="index-bq-btn" class="btn-secondary">Index Table</button>
+                        <div id="index-status" class="status-message"></div>
+                    </div>
+
+                    <!-- Search -->
+                    <div class="sub-section">
+                        <h4>Search</h4>
+                        <label>
+                            <span>Query</span>
+                            <input type="text" id="rag-search-query" placeholder="Search...">
+                        </label>
+                        <button id="rag-search-btn" class="btn-secondary">Search</button>
+                        <div id="search-results" class="search-results"></div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="settings-section">
                 <h3>Settings</h3>
                 <label>
                     <span>Ollama URL</span>
@@ -160,6 +232,7 @@
         let messages = [];
         let isStreaming = false;
         let modelData = { models: [], default_model: null, aliases: {} };
+        let useRag = true;
 
         // DOM Elements
         const ollamaUrl = document.getElementById('ollama-url');
@@ -189,6 +262,26 @@
         const currentModelSpan = document.getElementById('current-model');
         const connectionStatus = document.getElementById('connection-status');
 
+        // RAG Elements
+        const useRagCheckbox = document.getElementById('use-rag');
+        const ragDocCount = document.getElementById('rag-doc-count');
+        const toggleRagPanel = document.getElementById('toggle-rag-panel');
+        const ragPanel = document.getElementById('rag-panel');
+        const bqProject = document.getElementById('bq-project');
+        const bqDataset = document.getElementById('bq-dataset');
+        const connectBqBtn = document.getElementById('connect-bq');
+        const bqStatus = document.getElementById('bq-status');
+        const bqTableSelect = document.getElementById('bq-table-select');
+        const loadTablesBtn = document.getElementById('load-tables-btn');
+        const tableSchema = document.getElementById('table-schema');
+        const bqIndexColumns = document.getElementById('bq-index-columns');
+        const bqIndexLimit = document.getElementById('bq-index-limit');
+        const indexBqBtn = document.getElementById('index-bq-btn');
+        const indexStatus = document.getElementById('index-status');
+        const ragSearchQuery = document.getElementById('rag-search-query');
+        const ragSearchBtn = document.getElementById('rag-search-btn');
+        const searchResults = document.getElementById('search-results');
+
         // Configure marked
         marked.setOptions({
             highlight: function(code, lang) {
@@ -203,6 +296,7 @@
         // Initialize
         document.addEventListener('DOMContentLoaded', () => {
             loadModels();
+            loadRagStats();
             setupEventListeners();
             autoResizeTextarea();
         });
@@ -211,7 +305,7 @@
             refreshModelsBtn.addEventListener('click', loadModels);
             modelSelect.addEventListener('change', onModelChange);
             setDefaultBtn.addEventListener('click', setDefaultModel);
-            toggleModelManager.addEventListener('click', togglePanel);
+            toggleModelManager.addEventListener('click', () => togglePanelById('model-manager-panel', 'toggle-model-manager'));
             addModelBtn.addEventListener('click', addModel);
             removeModelBtn.addEventListener('click', removeModel);
             loadCustomModelBtn.addEventListener('click', loadCustomModel);
@@ -225,11 +319,22 @@
                 updateSendButton();
             });
             ollamaUrl.addEventListener('change', loadModels);
+
+            // RAG events
+            useRagCheckbox.addEventListener('change', () => { useRag = useRagCheckbox.checked; });
+            toggleRagPanel.addEventListener('click', () => togglePanelById('rag-panel', 'toggle-rag-panel'));
+            connectBqBtn.addEventListener('click', connectBigQuery);
+            loadTablesBtn.addEventListener('click', loadBqTables);
+            bqTableSelect.addEventListener('change', loadTableSchema);
+            indexBqBtn.addEventListener('click', indexBqTable);
+            ragSearchBtn.addEventListener('click', searchRag);
         }
 
-        function togglePanel() {
-            modelManagerPanel.classList.toggle('open');
-            toggleModelManager.textContent = modelManagerPanel.classList.contains('open') ? '-' : '+';
+        function togglePanelById(panelId, buttonId) {
+            const panel = document.getElementById(panelId);
+            const btn = document.getElementById(buttonId);
+            panel.classList.toggle('open');
+            btn.textContent = panel.classList.contains('open') ? '-' : '+';
         }
 
         function autoResizeTextarea() {
@@ -516,20 +621,26 @@
             const assistantDiv = appendMessage('assistant', '');
             const contentDiv = assistantDiv.querySelector('.message-content');
 
+            // Choose endpoint based on RAG toggle
+            const endpoint = useRag ? '/api/chat-rag' : '/api/chat';
+
             try {
-                const response = await fetch('/api/chat', {
+                const response = await fetch(endpoint, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
                         model: currentModel,
                         messages: messages,
-                        ollama_url: ollamaUrl.value
+                        ollama_url: ollamaUrl.value,
+                        use_rag: useRag,
+                        n_context: 3
                     })
                 });
 
                 const reader = response.body.getReader();
                 const decoder = new TextDecoder();
                 let fullResponse = '';
+                let ragSources = [];
 
                 while (true) {
                     const { value, done } = await reader.read();
@@ -540,9 +651,18 @@
                         if (line.startsWith('data: ')) {
                             try {
                                 const data = JSON.parse(line.slice(6));
+                                // Handle RAG sources
+                                if (data.rag_sources) {
+                                    ragSources = data.rag_sources;
+                                }
                                 if (data.content) {
                                     fullResponse += data.content;
-                                    contentDiv.innerHTML = marked.parse(fullResponse);
+                                    let html = marked.parse(fullResponse);
+                                    // Add RAG sources badge if available
+                                    if (ragSources.length > 0) {
+                                        html = `<div class="rag-badge">Sources: ${ragSources.join(', ')}</div>` + html;
+                                    }
+                                    contentDiv.innerHTML = html;
                                     contentDiv.querySelectorAll('pre code').forEach(block => hljs.highlightElement(block));
                                     chatMessages.scrollTop = chatMessages.scrollHeight;
                                 }
@@ -582,6 +702,188 @@
             const div = document.createElement('div');
             div.textContent = text;
             return div.innerHTML.replace(/\n/g, '<br>');
+        }
+
+        // === RAG Functions (BigQuery) ===
+
+        async function loadRagStats() {
+            try {
+                const response = await fetch('/api/rag/stats');
+                const data = await response.json();
+                if (data.success) {
+                    const count = data.stats.document_count || 0;
+                    ragDocCount.textContent = `${count} docs`;
+                    // Update connection status
+                    if (data.stats.bq_connected) {
+                        bqStatus.textContent = `Connected: ${data.stats.bq_project}.${data.stats.bq_dataset}`;
+                        bqStatus.className = 'status-message success';
+                        bqStatus.style.display = 'block';
+                    }
+                }
+            } catch (e) {
+                ragDocCount.textContent = '0 docs';
+            }
+        }
+
+        async function connectBigQuery() {
+            const project = bqProject.value.trim();
+            const dataset = bqDataset.value.trim();
+
+            if (!project) {
+                alert('Enter Project ID');
+                return;
+            }
+
+            connectBqBtn.disabled = true;
+            bqStatus.textContent = 'Connecting...';
+            bqStatus.style.display = 'block';
+
+            try {
+                const response = await fetch('/api/rag/connect-bq', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        project_id: project,
+                        dataset: dataset
+                    })
+                });
+                const data = await response.json();
+
+                if (data.success) {
+                    bqStatus.textContent = 'Connected!';
+                    bqStatus.className = 'status-message success';
+                    await loadBqTables();
+                } else {
+                    bqStatus.textContent = `Error: ${data.error}`;
+                    bqStatus.className = 'status-message error';
+                }
+            } catch (error) {
+                bqStatus.textContent = `Error: ${error.message}`;
+            } finally {
+                connectBqBtn.disabled = false;
+            }
+        }
+
+        async function loadBqTables() {
+            try {
+                const response = await fetch('/api/rag/bq-tables');
+                const data = await response.json();
+
+                bqTableSelect.innerHTML = '<option value="">-- Select Table --</option>';
+
+                if (data.success && data.tables) {
+                    data.tables.forEach(t => {
+                        const option = document.createElement('option');
+                        option.value = t.name;
+                        option.textContent = t.name;
+                        bqTableSelect.appendChild(option);
+                    });
+                }
+            } catch (e) {
+                console.error('Failed to load tables:', e);
+            }
+        }
+
+        async function loadTableSchema() {
+            const table = bqTableSelect.value;
+            if (!table) {
+                tableSchema.innerHTML = '';
+                return;
+            }
+
+            try {
+                const response = await fetch(`/api/rag/bq-schema?table=${encodeURIComponent(table)}`);
+                const data = await response.json();
+
+                if (data.success) {
+                    tableSchema.innerHTML = `
+                        <div class="schema-header">${data.num_rows?.toLocaleString() || 0} rows</div>
+                        <div class="schema-columns">
+                            ${data.schema.map(f => `<span class="schema-col">${f.name}</span>`).join('')}
+                        </div>
+                    `;
+                    // Auto-fill columns
+                    bqIndexColumns.value = data.schema.slice(0, 5).map(f => f.name).join(', ');
+                }
+            } catch (e) {
+                tableSchema.innerHTML = '<div class="error">Failed to load schema</div>';
+            }
+        }
+
+        async function indexBqTable() {
+            const table = bqTableSelect.value;
+            const columns = bqIndexColumns.value.split(',').map(c => c.trim()).filter(c => c);
+            const limit = parseInt(bqIndexLimit.value) || 100;
+
+            if (!table || columns.length === 0) {
+                alert('Select a table and enter columns to index');
+                return;
+            }
+
+            indexBqBtn.disabled = true;
+            indexStatus.textContent = 'Indexing...';
+            indexStatus.style.display = 'block';
+
+            try {
+                const response = await fetch('/api/rag/index-bq', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        table: table,
+                        columns: columns,
+                        limit: limit
+                    })
+                });
+                const data = await response.json();
+
+                if (data.success) {
+                    indexStatus.textContent = `Indexed: ${data.indexed} rows`;
+                    indexStatus.className = 'status-message success';
+                    await loadRagStats();
+                } else {
+                    indexStatus.textContent = `Error: ${data.error}`;
+                    indexStatus.className = 'status-message error';
+                }
+            } catch (error) {
+                indexStatus.textContent = `Error: ${error.message}`;
+            } finally {
+                indexBqBtn.disabled = false;
+            }
+        }
+
+        async function searchRag() {
+            const query = ragSearchQuery.value.trim();
+            if (!query) {
+                alert('Enter search query');
+                return;
+            }
+
+            ragSearchBtn.disabled = true;
+            searchResults.innerHTML = '<div class="loading">Searching...</div>';
+
+            try {
+                const response = await fetch('/api/rag/search', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ query, n_results: 3 })
+                });
+                const data = await response.json();
+
+                if (data.success && data.results.length > 0) {
+                    searchResults.innerHTML = data.results.map((r, i) => `
+                        <div class="search-result">
+                            <div class="result-header">${i + 1}. ${r.metadata?.table || r.metadata?.filename || 'Data'}</div>
+                            <div class="result-content">${r.content.substring(0, 200)}...</div>
+                        </div>
+                    `).join('');
+                } else {
+                    searchResults.innerHTML = '<div class="no-results">No results found</div>';
+                }
+            } catch (error) {
+                searchResults.innerHTML = `<div class="error">Error: ${error.message}</div>`;
+            } finally {
+                ragSearchBtn.disabled = false;
+            }
         }
     </script>
 </body>
