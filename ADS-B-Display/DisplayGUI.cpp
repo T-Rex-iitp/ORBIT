@@ -2606,7 +2606,14 @@ void __fastcall TSpeechTranscribeThread::HandleTranscriptionResult(void)
 			Form1->Memo1->Lines->Add(TranscribedText);
 		}
 		printf("WHISPER: Transcription added to Memo1: %s\n", TranscribedText.c_str());
-		// Optionally process voice command here: Form1->ProcessVoiceCommand(TranscribedText);
+		
+		// Check if this is a "previous flight" query (not a BigQuery SQL query)
+		AnsiString lowerText = TranscribedText.LowerCase();
+		if (lowerText.Pos("previous") > 0 && lowerText.Pos("flight") > 0)
+		{
+			// This is a previous flight query - process it directly
+			Form1->ProcessVoiceCommand(TranscribedText);
+		}
 	}
 	else
 	{
@@ -2697,6 +2704,21 @@ void __fastcall TForm1::ProcessVoiceCommand(AnsiString command)
 		}
 	}
 	
+	// Check for "previous flight" query
+	if (stristr(cmd.c_str(), "previous") != NULL && stristr(cmd.c_str(), "flight") != NULL)
+	{
+		AnsiString flightNo = ExtractFlightNumber(cmd);
+		if (flightNo.Length() > 0)
+		{
+			ProcessPreviousFlightQuery(flightNo);
+			recognizedCommand = "Finding previous flight of " + flightNo.UpperCase();
+		}
+		else
+		{
+			recognizedCommand = "Please specify a flight number";
+		}
+	}
+	
 	// Update UI
 	if (recognizedCommand.Length() > 0)
 	{
@@ -2705,6 +2727,373 @@ void __fastcall TForm1::ProcessVoiceCommand(AnsiString command)
 		delete wtext;
 	}
 	
+}
+//---------------------------------------------------------------------------
+// Extract flight number from voice command text
+// Supports patterns like: "KE937", "KAL123", "AAL456", "UAL789", etc.
+//---------------------------------------------------------------------------
+AnsiString TForm1::ExtractFlightNumber(AnsiString text)
+{
+	AnsiString result = "";
+	text = text.UpperCase();
+	
+	// Common airline codes (2-3 letters)
+	const char* airlineCodes[] = {
+		"KE", "KAL", "AAL", "UAL", "DAL", "SWA", "JBU", "ASA", "FFT", "SKW",
+		"AA", "UA", "DL", "WN", "B6", "AS", "NK", "F9", "G4", "HA",
+		"BA", "AF", "LH", "EK", "SQ", "QF", "CX", "NH", "JL", "OZ",
+		NULL
+	};
+	
+	// Try to find flight number pattern (airline code + digits)
+	for (int i = 0; airlineCodes[i] != NULL; i++)
+	{
+		const char* code = airlineCodes[i];
+		int pos = text.Pos(code);
+		if (pos > 0)
+		{
+			// Found airline code, now extract the number
+			AnsiString flightNo = code;
+			int startPos = pos + strlen(code);
+			
+			// Skip any spaces
+			while (startPos <= text.Length() && text[startPos] == ' ')
+				startPos++;
+			
+			// Extract digits
+			while (startPos <= text.Length())
+			{
+				char c = text[startPos];
+				if (c >= '0' && c <= '9')
+				{
+					flightNo += c;
+					startPos++;
+				}
+				else
+				{
+					break;
+				}
+			}
+			
+			// Check if we got a valid flight number (at least 1 digit)
+			if (flightNo.Length() > strlen(code))
+			{
+				result = flightNo;
+				break;
+			}
+		}
+	}
+	
+	// If no airline code found, try to find any alphanumeric pattern that looks like a flight number
+	if (result.Length() == 0)
+	{
+		// Look for patterns like letters followed by 1-4 digits
+		for (int i = 1; i <= text.Length() - 2; i++)
+		{
+			char c1 = text[i];
+			if ((c1 >= 'A' && c1 <= 'Z'))
+			{
+				// Found a letter, check if followed by more letters and then digits
+				AnsiString candidate = "";
+				candidate += c1;
+				int j = i + 1;
+				
+				// Get more letters (up to 3 total)
+				while (j <= text.Length() && candidate.Length() < 3)
+				{
+					char c = text[j];
+					if (c >= 'A' && c <= 'Z')
+					{
+						candidate += c;
+						j++;
+					}
+					else
+					{
+						break;
+					}
+				}
+				
+				// Skip spaces
+				while (j <= text.Length() && text[j] == ' ')
+					j++;
+				
+				// Get digits (1-4)
+				AnsiString digits = "";
+				while (j <= text.Length() && digits.Length() < 4)
+				{
+					char c = text[j];
+					if (c >= '0' && c <= '9')
+					{
+						digits += c;
+						j++;
+					}
+					else
+					{
+						break;
+					}
+				}
+				
+				// Valid if we have at least 2 letters and 1-4 digits
+				if (candidate.Length() >= 2 && digits.Length() >= 1 && digits.Length() <= 4)
+				{
+					result = candidate + digits;
+					break;
+				}
+			}
+		}
+	}
+	
+	return result;
+}
+//---------------------------------------------------------------------------
+// Center map on the currently hooked aircraft
+//---------------------------------------------------------------------------
+void __fastcall TForm1::CenterMapOnHookedAircraft(void)
+{
+	if (!TrackHook.Valid_CC)
+	{
+		printf("CENTER: No aircraft is currently hooked\n");
+		return;
+	}
+	
+	// Get the hooked aircraft from hash table
+	TADS_B_Aircraft* Data = (TADS_B_Aircraft*)ght_get(HashTable, sizeof(TrackHook.ICAO_CC), (void*)&TrackHook.ICAO_CC);
+	
+	if (Data && Data->HaveLatLon)
+	{
+		// Update map center to aircraft position
+		MapCenterLat = Data->Latitude;
+		MapCenterLon = Data->Longitude;
+		
+		// Update the EarthView position
+		SetMapCenter(g_EarthView->m_Eye.x, g_EarthView->m_Eye.y);
+		
+		// Redraw the display
+		ObjectDisplay->Repaint();
+		
+		printf("CENTER: Map centered on aircraft at Lat: %.4f, Lon: %.4f\n", 
+			   MapCenterLat, MapCenterLon);
+	}
+	else
+	{
+		printf("CENTER: Hooked aircraft has no valid position data\n");
+	}
+}
+//---------------------------------------------------------------------------
+// Hook aircraft by callsign (FlightNum)
+// Returns true if found and hooked, false otherwise
+//---------------------------------------------------------------------------
+bool __fastcall TForm1::HookByCallsign(AnsiString callsign)
+{
+	if (callsign.Length() == 0)
+		return false;
+	
+	// Convert to uppercase for comparison
+	callsign = callsign.UpperCase().Trim();
+	
+	// Iterate through all aircraft in the hash table
+	ght_iterator_t iterator;
+	uint32_t *Key;
+	TADS_B_Aircraft* Data;
+	
+	for (Data = (TADS_B_Aircraft*)ght_first(HashTable, &iterator, (const void**)&Key);
+		 Data;
+		 Data = (TADS_B_Aircraft*)ght_next(HashTable, &iterator, (const void**)&Key))
+	{
+		if (Data->HaveFlightNum)
+		{
+			// Compare callsign (FlightNum)
+			AnsiString aircraftCallsign = AnsiString(Data->FlightNum).UpperCase().Trim();
+			
+			// Check for exact match or partial match
+			if (aircraftCallsign == callsign || 
+				callsign.Pos(aircraftCallsign) > 0 ||
+				aircraftCallsign.Pos(callsign) > 0)
+			{
+				// Found it! Hook this aircraft
+				TrackHook.Valid_CC = true;
+				TrackHook.ICAO_CC = Data->ICAO;
+				
+				// Center the map on the hooked aircraft
+				CenterMapOnHookedAircraft();
+				
+				// Announce the hook
+				AnsiString Text = "Hooked Aircraft " + (AnsiString)GetAircraftDBInfo(Data->ICAO);
+				wchar_t *wtext = AnsiTowchar_t(Text);
+				SpVoice1->Speak(wtext, SpeechVoiceSpeakFlags::SVSFlagsAsync);
+				delete wtext;
+				
+				printf("HOOK: Found and hooked aircraft by callsign: %s (ICAO: %s)\n", 
+					   Data->FlightNum, Data->HexAddr);
+				
+				return true;
+			}
+		}
+	}
+	
+	printf("HOOK: Aircraft with callsign '%s' not found in tracked aircraft\n", callsign.c_str());
+	return false;
+}
+//---------------------------------------------------------------------------
+// Process "previous flight" voice query
+// Calls FR24 API to get previous flight info and hooks it if found
+//---------------------------------------------------------------------------
+void __fastcall TForm1::ProcessPreviousFlightQuery(AnsiString flightNo)
+{
+	if (flightNo.Length() == 0)
+	{
+		if (Memo1)
+			Memo1->Lines->Add("ERROR: No flight number specified");
+		return;
+	}
+	
+	printf("FR24: Processing previous flight query for: %s\n", flightNo.c_str());
+	
+	if (Memo1)
+		Memo1->Lines->Add("Finding previous flight of " + flightNo + "...");
+	
+	// Build command to call FR24 client Python script
+	AnsiString FR24ScriptPath = ExtractFilePath(SpeechTranscribeScriptPath) + "fr24_client.py";
+	AnsiString commandLine = "\"" + SpeechPythonPath + "\" \"" + FR24ScriptPath + "\" " + flightNo;
+	
+	printf("FR24: Running command: %s\n", commandLine.c_str());
+	
+	// Create pipes for stdout capture
+	STARTUPINFOA si;
+	PROCESS_INFORMATION pi;
+	HANDLE hStdOutRd, hStdOutWr;
+	SECURITY_ATTRIBUTES sa;
+	
+	ZeroMemory(&sa, sizeof(sa));
+	sa.nLength = sizeof(SECURITY_ATTRIBUTES);
+	sa.bInheritHandle = TRUE;
+	sa.lpSecurityDescriptor = NULL;
+	
+	// Create pipe for stdout
+	if (!CreatePipe(&hStdOutRd, &hStdOutWr, &sa, 0))
+	{
+		printf("FR24: Failed to create pipe\n");
+		if (Memo1)
+			Memo1->Lines->Add("ERROR: Failed to create pipe for FR24 client");
+		return;
+	}
+	
+	SetHandleInformation(hStdOutRd, HANDLE_FLAG_INHERIT, 0);
+	
+	ZeroMemory(&si, sizeof(si));
+	si.cb = sizeof(STARTUPINFOA);
+	si.hStdOutput = hStdOutWr;
+	si.hStdError = hStdOutWr;
+	si.dwFlags |= STARTF_USESTDHANDLES;
+	
+	ZeroMemory(&pi, sizeof(pi));
+	
+	// Create process
+	if (!CreateProcessA(NULL, commandLine.c_str(), NULL, NULL, TRUE, 
+						CREATE_NO_WINDOW, NULL, NULL, &si, &pi))
+	{
+		printf("FR24: Failed to start FR24 client process\n");
+		if (Memo1)
+			Memo1->Lines->Add("ERROR: Failed to start FR24 client");
+		CloseHandle(hStdOutWr);
+		CloseHandle(hStdOutRd);
+		return;
+	}
+	
+	CloseHandle(hStdOutWr);
+	
+	// Wait for process with timeout (30 seconds)
+	DWORD waitResult = WaitForSingleObject(pi.hProcess, 30000);
+	
+	if (waitResult == WAIT_TIMEOUT)
+	{
+		printf("FR24: Timeout waiting for FR24 client\n");
+		if (Memo1)
+			Memo1->Lines->Add("ERROR: FR24 API request timed out");
+		TerminateProcess(pi.hProcess, 1);
+		CloseHandle(pi.hProcess);
+		CloseHandle(pi.hThread);
+		CloseHandle(hStdOutRd);
+		return;
+	}
+	
+	// Read output
+	AnsiString output = "";
+	char buffer[4096];
+	DWORD bytesRead;
+	
+	while (ReadFile(hStdOutRd, buffer, sizeof(buffer) - 1, &bytesRead, NULL) && bytesRead > 0)
+	{
+		buffer[bytesRead] = '\0';
+		output += buffer;
+	}
+	
+	CloseHandle(hStdOutRd);
+	CloseHandle(pi.hProcess);
+	CloseHandle(pi.hThread);
+	
+	printf("FR24: Output:\n%s\n", output.c_str());
+	
+	// Parse output to get the callsign to hook
+	// Look for "--- HOOK_CALLSIGN ---" marker
+	int hookMarkerPos = output.Pos("--- HOOK_CALLSIGN ---");
+	if (hookMarkerPos > 0)
+	{
+		// Get the callsign after the marker
+		AnsiString afterMarker = output.SubString(hookMarkerPos + 21, output.Length());
+		afterMarker = afterMarker.Trim();
+		
+		// Get the first line (callsign)
+		int newlinePos = afterMarker.Pos("\n");
+		AnsiString hookCallsign;
+		if (newlinePos > 0)
+			hookCallsign = afterMarker.SubString(1, newlinePos - 1).Trim();
+		else
+			hookCallsign = afterMarker.Trim();
+		
+		printf("FR24: Callsign to hook: '%s'\n", hookCallsign.c_str());
+		
+		if (hookCallsign == "NOT_FOUND")
+		{
+			if (Memo1)
+				Memo1->Lines->Add("No previous flight found for " + flightNo);
+			
+			wchar_t *wtext = AnsiTowchar_t("No previous flight found");
+			SpVoice1->Speak(wtext, SpeechVoiceSpeakFlags::SVSFlagsAsync);
+			delete wtext;
+		}
+		else if (hookCallsign.Length() > 0)
+		{
+			// Display full output in Memo1 (without the hook marker)
+			AnsiString displayOutput = output.SubString(1, hookMarkerPos - 1).Trim();
+			if (Memo1 && displayOutput.Length() > 0)
+				Memo1->Lines->Add(displayOutput);
+			
+			// Try to hook the aircraft
+			bool hooked = HookByCallsign(hookCallsign);
+			
+			if (hooked)
+			{
+				if (Memo1)
+					Memo1->Lines->Add("Previous flight found and selected!");
+			}
+			else
+			{
+				if (Memo1)
+					Memo1->Lines->Add("Previous flight is " + hookCallsign + " but aircraft not currently tracked");
+				
+				wchar_t *wtext = AnsiTowchar_t("Previous flight is " + hookCallsign + " but not currently tracked");
+				SpVoice1->Speak(wtext, SpeechVoiceSpeakFlags::SVSFlagsAsync);
+				delete wtext;
+			}
+		}
+	}
+	else
+	{
+		// No hook marker found, just display the output
+		if (Memo1)
+			Memo1->Lines->Add(output);
+	}
 }
 //---------------------------------------------------------------------------
 static bool DeleteFilesWithExtension(AnsiString dirPath, AnsiString extension)

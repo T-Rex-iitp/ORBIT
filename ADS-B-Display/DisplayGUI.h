@@ -302,6 +302,10 @@ __published:	// IDE-managed Components
           ISpeechRecoResult *Result);
 	void __fastcall LIstenClick(TObject *Sender);
 	void __fastcall ProcessVoiceCommand(AnsiString command);
+	void __fastcall ProcessPreviousFlightQuery(AnsiString flightNo);
+	bool __fastcall HookByCallsign(AnsiString callsign);
+	AnsiString ExtractFlightNumber(AnsiString text);
+	void __fastcall CenterMapOnHookedAircraft(void);
 
 private:	// User declarations
 

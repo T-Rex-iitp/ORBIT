@@ -7,3 +7,7 @@ ADS-B-Display/BigQuery/BigQuery.log
 speech/ollama_config.json
 *.pem
 *.key
+ADS-B-Display/__recovery/DisplayGUI.h
+ADS-B-Display/__recovery/__recovery.ini
+ADS-B-Display/__recovery/DisplayGUI.cpp
+ADS-B-Display/__recovery/DisplayGUI.dfm

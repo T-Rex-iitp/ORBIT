@@ -265,8 +265,17 @@ def main():
             print("", end="", file=sys.stdout)
             sys.stdout.flush()
         
-        # Ollama integration: send transcription to LLM
-        if args.ollama and text:
+        # Check for "previous flight" query - handled by C++ code, skip Ollama/BigQuery
+        is_previous_flight_query = False
+        if text:
+            text_lower = text.lower()
+            if "previous" in text_lower and "flight" in text_lower:
+                is_previous_flight_query = True
+                print("WHISPER: Detected 'previous flight' query - will be handled by GUI", file=sys.stderr)
+                sys.stderr.flush()
+        
+        # Ollama integration: send transcription to LLM (skip if previous flight query)
+        if args.ollama and text and not is_previous_flight_query:
             if not OLLAMA_AVAILABLE:
                 print("ERROR: Ollama client not available. Install required packages: pip install sshtunnel requests", file=sys.stderr)
                 sys.exit(1)
