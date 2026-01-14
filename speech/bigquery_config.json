@@ -1,0 +1,14 @@
+{
+    "_comment": "BigQuery configuration for transcription integration",
+    
+    "project": "iitp-class-team-4-473114",
+    "dataset": "ADSB",
+    "location": "US",
+    
+    "transcription_table": "Transcriptions",
+    "query_timeout": 60,
+    
+    "_note": "Credentials are loaded from ADS-B-Display/BigQuery/t-rex.json"
+}
+
+

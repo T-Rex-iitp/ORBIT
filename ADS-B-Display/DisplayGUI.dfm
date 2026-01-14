@@ -231,7 +231,11 @@ object Form1: TForm1
         Columns = <
           item
             Caption = 'Area'
-            Width = 170
+            Width = 120
+          end
+          item
+            Caption = 'Count'
+            Width = 45
           end
           item
             Caption = 'Color'
@@ -262,6 +266,15 @@ object Form1: TForm1
         Enabled = False
         TabOrder = 6
         OnClick = DeleteClick
+      end
+      object JFKButton: TButton
+        Left = 205
+        Top = 544
+        Width = 30
+        Height = 18
+        Caption = 'JFK'
+        TabOrder = 21
+        OnClick = JFKButtonClick
       end
       object Complete: TButton
         Left = 45

@@ -1,0 +1,48 @@
+# Example queries for testing the text-to-SQL system
+# Each line is a separate query (lines starting with # are comments)
+
+# Basic queries
+Show me all flights
+What are the latest 10 flights?
+List all aircraft callsigns
+
+# Altitude queries
+Show me flights above 10000 feet
+Which flights are flying below 5000 feet altitude?
+Find aircraft with altitude between 20000 and 30000
+
+# Speed queries
+Show me the fastest flights
+Which flights have ground speed over 400 knots?
+List flights with ground speed less than 200
+
+# Location queries
+Show me flights near latitude 37 and longitude 127
+Which aircraft are in Seoul area?
+Find flights within 1 degree of latitude 35
+
+# Callsign specific queries
+Show me information about flight KAL123
+Where is Korean Air 851?
+Track the position of Asiana 214
+
+# Time-based queries
+Show me flights from the last hour
+What flights were recorded today?
+Display the most recent flight positions
+
+# Emergency and special conditions
+Are there any emergency flights?
+Show me aircraft that are on the ground
+Which flights have emergency status?
+
+# Statistical queries
+What is the average altitude of all flights?
+Count how many flights are currently tracked
+Show me the highest and lowest altitudes
+
+# Complex queries
+Show me the top 5 flights by altitude with their callsigns and ground speed
+Find flights above 30000 feet that are flying faster than 450 knots
+List all Korean Air flights with their current positions and altitudes
+

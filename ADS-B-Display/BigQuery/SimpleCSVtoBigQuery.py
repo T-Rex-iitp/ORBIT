@@ -42,14 +42,14 @@ else:
 current_directory = os.getcwd()
 print(current_directory)
 # Set credentials
-api_key = os.path.join(global_filepath, "your_json_file_name")
+api_key = os.path.join(global_filepath, "t-rex.json")
 os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = api_key
 
 # Construct a BigQuery client object.
 client = bigquery.Client()
 
 # Set table_id to the ID of the table.
-table_id = "your_table_id"
+table_id = "iitp-class-team-4-473114.ADSB.Flight_test"
 
 job_config = bigquery.LoadJobConfig(
     source_format=bigquery.SourceFormat.CSV,

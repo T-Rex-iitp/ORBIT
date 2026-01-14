@@ -27,6 +27,14 @@ try:
 except ImportError:
     pass
 
+# BigQuery client (optional import)
+BIGQUERY_AVAILABLE = False
+try:
+    from bigquery_client import execute_sql_from_transcription, process_with_bigquery, load_config as load_bq_config
+    BIGQUERY_AVAILABLE = True
+except ImportError:
+    pass
+
 # Default model configuration
 DEFAULT_MODEL = "base"
 DEFAULT_DEVICE = "cpu"  # "cpu" or "cuda"
@@ -189,6 +197,30 @@ def main():
         help="Output only Ollama response (hide transcription)"
     )
     
+    # BigQuery integration options
+    parser.add_argument(
+        "--bigquery",
+        action="store_true",
+        help="Execute SQL query on BigQuery after Ollama generates SQL"
+    )
+    parser.add_argument(
+        "--bigquery-config",
+        type=str,
+        default=None,
+        help="Path to BigQuery config file (default: bigquery_config.json)"
+    )
+    parser.add_argument(
+        "--bigquery-only",
+        action="store_true",
+        help="Output only BigQuery results (hide transcription and SQL)"
+    )
+    parser.add_argument(
+        "--max-rows",
+        type=int,
+        default=20,
+        help="Maximum rows to display from BigQuery results (default: 20)"
+    )
+    
     args = parser.parse_args()
     
     # Validate input file
@@ -224,8 +256,9 @@ def main():
             language=language
         )
         
-        # Output transcription (unless --ollama-only is set)
-        if text and not args.ollama_only:
+        # Output transcription (unless --ollama-only or --bigquery-only is set)
+        if text and not args.ollama_only and not args.bigquery_only:
+            print("--- Transcribe ---", file=sys.stdout)
             print(text, file=sys.stdout)
             sys.stdout.flush()
         elif not text:
@@ -249,14 +282,44 @@ def main():
                 )
                 
                 if ollama_response:
-                    # Separator between transcription and AI response
-                    if not args.ollama_only:
-                        print("\n--- AI Response ---", file=sys.stdout)
-                    print(ollama_response, file=sys.stdout)
-                    sys.stdout.flush()
+                    # Separator between transcription and SQL (skip if --bigquery-only)
+                    if not args.ollama_only and not args.bigquery_only:
+                        print("\n--- SQL ---", file=sys.stdout)
+                    if not args.bigquery_only:
+                        print(ollama_response, file=sys.stdout)
+                        sys.stdout.flush()
                     
                     print(f"OLLAMA: AI response output complete", file=sys.stderr)
                     sys.stderr.flush()
+                    
+                # BigQuery integration: execute SQL on BigQuery
+                if args.bigquery and ollama_response:
+                    if not BIGQUERY_AVAILABLE:
+                        print("ERROR: BigQuery client not available. Install: pip install google-cloud-bigquery>=3.21.0", file=sys.stderr)
+                        sys.stderr.flush()
+                    else:
+                        try:
+                            print("BIGQUERY: Executing SQL query on BigQuery...", file=sys.stderr)
+                            sys.stderr.flush()
+                            
+                            bq_result = execute_sql_from_transcription(
+                                sql=ollama_response,
+                                config=load_bq_config(args.bigquery_config),
+                                max_rows=args.max_rows
+                            )
+                            
+                            if bq_result:
+                                if not args.bigquery_only:
+                                    print("\n--- BigQuery Results ---", file=sys.stdout)
+                                print(bq_result, file=sys.stdout)
+                                sys.stdout.flush()
+                                
+                                print(f"BIGQUERY: Results output complete", file=sys.stderr)
+                                sys.stderr.flush()
+                                
+                        except Exception as bq_error:
+                            print(f"BIGQUERY ERROR: {str(bq_error)}", file=sys.stderr)
+                            sys.stderr.flush()
                     
             except FileNotFoundError as e:
                 print(f"OLLAMA ERROR: Config file not found - {e}", file=sys.stderr)

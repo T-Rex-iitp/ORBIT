@@ -217,6 +217,15 @@ __fastcall TForm1::TForm1(TComponent* Owner)
   IsRecordingVoice = false;
   RecordedAudioPath = "";
   AudioRecorder = new TAudioRecorder();
+  
+  // Initialize airport tracking
+  TrackingAirport = false;
+  AirportName = "";
+  AirportLat = 0.0;
+  AirportLon = 0.0;
+  AirportRadiusMiles = 100.0;
+  AirportListItem = NULL;
+  
   RecordRawStream=NULL;
   PlayBackRawStream=NULL;
   TrackHook.Valid_CC=false;
@@ -921,6 +930,158 @@ void __fastcall TForm1::Purge(void)
 void __fastcall TForm1::Timer2Timer(TObject *Sender)
 {
  Purge();
+ UpdateAreaFlightCounts();  // Update flight counts in areas
+}
+//---------------------------------------------------------------------------
+// Count flights within a polygon area (ROI)
+int __fastcall TForm1::CountFlightsInArea(TArea *Area)
+{
+  int count = 0;
+  uint32_t *Key;
+  ght_iterator_t iterator;
+  TADS_B_Aircraft* Data;
+  pfVec3 Point;
+
+  if (!Area || Area->NumPoints < 3) return 0;
+
+  for(Data = (TADS_B_Aircraft *)ght_first(HashTable, &iterator,(const void **) &Key);
+      Data; Data = (TADS_B_Aircraft *)ght_next(HashTable, &iterator, (const void **)&Key))
+  {
+    if (Data->HaveLatLon)
+    {
+      // Create point for aircraft position (lon, lat, 0)
+      Point[0] = Data->Longitude;
+      Point[1] = Data->Latitude;
+      Point[2] = 0.0;
+
+      // Check if aircraft is inside the polygon
+      if (PointInPolygon(Area->Points, Area->NumPoints, Point))
+      {
+        count++;
+      }
+    }
+  }
+  return count;
+}
+//---------------------------------------------------------------------------
+// Update flight counts for all areas and display in AreaListView
+void __fastcall TForm1::UpdateAreaFlightCounts(void)
+{
+  // Iterate through all ListView items and update counts
+  for (int i = 0; i < AreaListView->Items->Count; i++)
+  {
+    TListItem *Item = AreaListView->Items->Item[i];
+    TArea *Area = (TArea *)Item->Data;
+    
+    if (Area != NULL)
+    {
+      // This is a polygon area - count flights in polygon
+      int flightCount = CountFlightsInArea(Area);
+      if (Item->SubItems->Count > 0)
+      {
+        Item->SubItems->Strings[0] = IntToStr(flightCount);
+      }
+    }
+    else if (TrackingAirport && Item == AirportListItem)
+    {
+      // This is the airport radius entry - count flights in radius
+      int airportCount = CountFlightsInRadius(AirportLat, AirportLon, AirportRadiusMiles);
+      if (Item->SubItems->Count > 0)
+      {
+        Item->SubItems->Strings[0] = IntToStr(airportCount);
+      }
+    }
+  }
+}
+//---------------------------------------------------------------------------
+// Calculate distance between two points in statute miles using Haversine formula
+double __fastcall TForm1::CalculateDistanceMiles(double lat1, double lon1, double lat2, double lon2)
+{
+  const double EARTH_RADIUS_MILES = 3958.8;  // Earth radius in statute miles
+  
+  // Convert to radians
+  double lat1Rad = lat1 * M_PI / 180.0;
+  double lon1Rad = lon1 * M_PI / 180.0;
+  double lat2Rad = lat2 * M_PI / 180.0;
+  double lon2Rad = lon2 * M_PI / 180.0;
+  
+  // Haversine formula
+  double dLat = lat2Rad - lat1Rad;
+  double dLon = lon2Rad - lon1Rad;
+  
+  double a = sin(dLat / 2) * sin(dLat / 2) +
+             cos(lat1Rad) * cos(lat2Rad) *
+             sin(dLon / 2) * sin(dLon / 2);
+  double c = 2 * atan2(sqrt(a), sqrt(1 - a));
+  
+  return EARTH_RADIUS_MILES * c;
+}
+//---------------------------------------------------------------------------
+// Count flights within a radius (in miles) of a center point
+int __fastcall TForm1::CountFlightsInRadius(double centerLat, double centerLon, double radiusMiles)
+{
+  int count = 0;
+  uint32_t *Key;
+  ght_iterator_t iterator;
+  TADS_B_Aircraft* Data;
+
+  for(Data = (TADS_B_Aircraft *)ght_first(HashTable, &iterator,(const void **) &Key);
+      Data; Data = (TADS_B_Aircraft *)ght_next(HashTable, &iterator, (const void **)&Key))
+  {
+    if (Data->HaveLatLon)
+    {
+      double distance = CalculateDistanceMiles(centerLat, centerLon, 
+                                                Data->Latitude, Data->Longitude);
+      if (distance <= radiusMiles)
+      {
+        count++;
+      }
+    }
+  }
+  return count;
+}
+//---------------------------------------------------------------------------
+// JFK Button Click - Add JFK airport to tracking
+void __fastcall TForm1::JFKButtonClick(TObject *Sender)
+{
+  // JFK Airport coordinates
+  const double JFK_LAT = 40.6413;
+  const double JFK_LON = -73.7781;
+  const double RADIUS_MILES = 50.0;
+  
+  // If already tracking, remove and re-add (toggle behavior would remove, but let's just update)
+  if (TrackingAirport && AirportListItem)
+  {
+    // Already tracking JFK, do nothing or could toggle off
+    // For now, just update the count immediately
+    int count = CountFlightsInRadius(JFK_LAT, JFK_LON, RADIUS_MILES);
+    if (AirportListItem->SubItems->Count > 0)
+    {
+      AirportListItem->SubItems->Strings[0] = IntToStr(count);
+    }
+    return;
+  }
+  
+  // Set up airport tracking
+  TrackingAirport = true;
+  AirportName = "JFK (50mi)";
+  AirportLat = JFK_LAT;
+  AirportLon = JFK_LON;
+  AirportRadiusMiles = RADIUS_MILES;
+  
+  // Add entry to AreaListView
+  AreaListView->Items->BeginUpdate();
+  AirportListItem = AreaListView->Items->Add();
+  AirportListItem->Caption = AirportName;
+  AirportListItem->Data = NULL;  // No TArea data for airport radius
+  
+  // Initial count
+  int count = CountFlightsInRadius(JFK_LAT, JFK_LON, RADIUS_MILES);
+  AirportListItem->SubItems->Add(IntToStr(count));  // Count column
+  AirportListItem->SubItems->Add("");               // Color column (empty for airport)
+  AreaListView->Items->EndUpdate();
+  
+  printf("JFK Airport tracking enabled: %d flights within %.0f miles\n", count, RADIUS_MILES);
 }
 //---------------------------------------------------------------------------
 void __fastcall TForm1::PurgeButtonClick(TObject *Sender)
@@ -1081,32 +1242,45 @@ void __fastcall TForm1::AreaListViewCustomDrawItem(TCustomListView *Sender,
 {
    TRect   R;
    int Left;
+  TArea *Area=(TArea *)Item->Data;
+
+  // Clear background
   AreaListView->Canvas->Brush->Color = AreaListView->Color;
   AreaListView->Canvas->Font->Color = AreaListView->Font->Color;
   R=Item->DisplayRect(drBounds);
   AreaListView->Canvas->FillRect(R);
 
-  AreaListView->Canvas->TextWidth(Item->Caption);
+  // Draw Area Name (Column 0)
+  AreaListView->Canvas->TextOut(2, R.Top, Item->Caption);
 
- AreaListView->Canvas->TextOut(2, R.Top, Item->Caption );
+  Left = AreaListView->Column[0]->Width;
 
- Left = AreaListView->Column[0]->Width;
+  // Draw Count (Column 1) - SubItems[0]
+  if (Item->SubItems->Count > 0)
+  {
+    R=Item->DisplayRect(drBounds);
+    R.Left = Left + 2;
+    AreaListView->Canvas->TextOut(R.Left, R.Top, Item->SubItems->Strings[0]);
+  }
 
-  for(int   i=0   ;i<Item->SubItems->Count;i++)
-	 {
-	  R=Item->DisplayRect(drBounds);
-	  R.Left=R.Left+Left;
-	   TArea *Area=(TArea *)Item->Data;
-	  AreaListView->Canvas->Brush->Color=Area->Color;
-	  AreaListView->Canvas->FillRect(R);
-	 }
+  // Draw Color (Column 2) - SubItems[1]
+  Left += AreaListView->Column[1]->Width;
+  if (Item->SubItems->Count > 1 && Area)
+  {
+    R=Item->DisplayRect(drBounds);
+    R.Left = Left;
+    R.Right = R.Left + AreaListView->Column[2]->Width;
+    AreaListView->Canvas->Brush->Color = Area->Color;
+    AreaListView->Canvas->FillRect(R);
+  }
 
+  // Draw selection focus rectangle
   if (Item->Selected)
-	 {
-	  R=Item->DisplayRect(drBounds);
-	  AreaListView->Canvas->DrawFocusRect(R);
-	 }
-   DefaultDraw=false;
+  {
+    R=Item->DisplayRect(drBounds);
+    AreaListView->Canvas->DrawFocusRect(R);
+  }
+  DefaultDraw=false;
 }
 //---------------------------------------------------------------------------
 void __fastcall TForm1::DeleteAllAreas(void)
@@ -2304,9 +2478,12 @@ void __fastcall TSpeechTranscribeThread::Execute(void)
 	si.hStdError = hStdErrWr;  // Separate stderr
 	si.dwFlags |= STARTF_USESTDHANDLES;
 
-	// Build command line: python.exe script_path audio_file --ollama
-	// --ollama flag sends Whisper transcription to Ollama LLM via SSH tunnel
-	AnsiString commandLine = "\"" + PythonPath + "\" \"" + TranscribeScriptPath + "\" \"" + AudioFilePath + "\" --ollama";
+	// Build command line: python.exe script_path audio_file --ollama --bigquery --max-rows 5
+	// --ollama flag sends Whisper transcription to Ollama LLM to generate SQL
+	// --bigquery flag executes the SQL on BigQuery and returns results
+	// --max-rows 5 displays only top 5 results in GUI panel
+	// This will show: transcription → SQL → BigQuery results (top 5)
+	AnsiString commandLine = "\"" + PythonPath + "\" \"" + TranscribeScriptPath + "\" \"" + AudioFilePath + "\" --ollama --bigquery --max-rows 5";
 	
 	// Debug: Print Whisper + Ollama connection info
 	printf("=== WHISPER + OLLAMA CONNECTION DEBUG ===\n");
@@ -2729,7 +2906,8 @@ static int FinshARTCCBoundary(void)
  Row=Form1->AreaListView->Items->Count-1;
  Form1->AreaListView->Items->Item[Row]->Caption=Form1->AreaTemp->Name;
  Form1->AreaListView->Items->Item[Row]->Data=Form1->AreaTemp;
- Form1->AreaListView->Items->Item[Row]->SubItems->Add("");
+ Form1->AreaListView->Items->Item[Row]->SubItems->Add("0");    // Count column
+ Form1->AreaListView->Items->Item[Row]->SubItems->Add("");     // Color column
  Form1->AreaListView->Items->EndUpdate();
  Form1->AreaTemp=NULL;
  return 0 ;

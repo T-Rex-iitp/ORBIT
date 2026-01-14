@@ -181,6 +181,7 @@ __published:	// IDE-managed Components
 	TListView *AreaListView;
 	TButton *Insert;
 	TButton *Delete;
+	TButton *JFKButton;
 	TButton *Complete;
 	TButton *Cancel;
 	TButton *RawConnectButton;
@@ -274,6 +275,7 @@ __published:	// IDE-managed Components
 	void __fastcall AreaListViewSelectItem(TObject *Sender, TListItem *Item,
           bool Selected);
 	void __fastcall DeleteClick(TObject *Sender);
+	void __fastcall JFKButtonClick(TObject *Sender);
 	void __fastcall AreaListViewCustomDrawItem(TCustomListView *Sender,
           TListItem *Item, TCustomDrawState State, bool &DefaultDraw);
 	void __fastcall FormMouseWheel(TObject *Sender, TShiftState Shift,
@@ -313,6 +315,10 @@ public:		// User declarations
 	void __fastcall DrawObjects(void);
 	void __fastcall DeleteAllAreas(void);
 	void __fastcall Purge(void);
+	int __fastcall CountFlightsInArea(TArea *Area);
+	void __fastcall UpdateAreaFlightCounts(void);
+	int __fastcall CountFlightsInRadius(double centerLat, double centerLon, double radiusMiles);
+	double __fastcall CalculateDistanceMiles(double lat1, double lon1, double lat2, double lon2);
 	void __fastcall SendCotMessage(AnsiString IP_address, unsigned short Port,char *Buffer,DWORD Length);
 	void __fastcall RegisterWithCoTRouter(void);
     void __fastcall SetMapCenter(double &x, double &y);
@@ -364,6 +370,14 @@ public:		// User declarations
     bool                       IsRecordingVoice;
     AnsiString                 RecordedAudioPath;
     TAudioRecorder             *AudioRecorder;
+    
+    // Airport radius tracking
+    bool                       TrackingAirport;
+    AnsiString                 AirportName;
+    double                     AirportLat;
+    double                     AirportLon;
+    double                     AirportRadiusMiles;
+    TListItem                 *AirportListItem;
     
     BEGIN_MESSAGE_MAP
         MESSAGE_HANDLER(WM_AUTO_STOP_RECORDING, TMessage, WMAutoStopRecording)

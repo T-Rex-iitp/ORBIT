@@ -45,7 +45,8 @@ void __fastcall TAreaConfirm::OkButtonClick(TObject *Sender)
  Row=Form1->AreaListView->Items->Count-1;
  Form1->AreaListView->Items->Item[Row]->Caption=Form1->AreaTemp->Name;
  Form1->AreaListView->Items->Item[Row]->Data=Form1->AreaTemp;
- Form1->AreaListView->Items->Item[Row]->SubItems->Add("");
+ Form1->AreaListView->Items->Item[Row]->SubItems->Add("0");    // Count column
+ Form1->AreaListView->Items->Item[Row]->SubItems->Add("");     // Color column
  Form1->AreaListView->Items->EndUpdate();
 
 
