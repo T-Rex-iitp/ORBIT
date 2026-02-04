@@ -1,0 +1,59 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+dist/
+build/
+
+# Virtual Environment
+venv/
+env/
+ENV/
+
+# Jupyter Notebook
+.ipynb_checkpoints
+*.ipynb_checkpoints/
+
+# Environment variables
+.env
+
+# Models (KEEP trained models for distribution)
+# models/*.pkl  # Commented out - we want to keep these
+# models/*.pth
+# models/*.pt
+
+# Data files (keep sample data only)
+data/kaggle_flights/*.csv
+data/kaggle_flights/*.zip
+!data/kaggle_flights/flight_data_2024_data_dictionary.csv
+data/*.csv
+data/*.parquet
+!data/test_tickets_today.json
+!data/flights_20260205.json
+
+# Outputs
+outputs/
+logs/
+*.log
+
+# Test tickets (KEEP example images)
+# test_tickets/*.png  # Commented out - we want to keep these
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Temporary files
+tmp/
+temp/
+*.tmp

@@ -1,0 +1,62 @@
+[
+  {
+    "flight_number": "QR2867",
+    "airline": "Qatar Airways",
+    "origin": "JFK",
+    "destination": "DCA",
+    "destination_city": "Ronald Reagan Washington National Airport",
+    "scheduled_time": "2026-02-05 10:30",
+    "terminal": "8",
+    "gate": "42",
+    "passenger": "John Smith",
+    "seat": "10A"
+  },
+  {
+    "flight_number": "IB4967",
+    "airline": "Iberia",
+    "origin": "JFK",
+    "destination": "DCA",
+    "destination_city": "Ronald Reagan Washington National Airport",
+    "scheduled_time": "2026-02-05 13:30",
+    "terminal": "8",
+    "gate": "42",
+    "passenger": "John Smith",
+    "seat": "11A"
+  },
+  {
+    "flight_number": "BA4671",
+    "airline": "British Airways",
+    "origin": "JFK",
+    "destination": "DCA",
+    "destination_city": "Ronald Reagan Washington National Airport",
+    "scheduled_time": "2026-02-05 15:30",
+    "terminal": "8",
+    "gate": "42",
+    "passenger": "John Smith",
+    "seat": "12A"
+  },
+  {
+    "flight_number": "SQ1481",
+    "airline": "Singapore Airlines",
+    "origin": "JFK",
+    "destination": "MCO",
+    "destination_city": "Orlando International",
+    "scheduled_time": "2026-02-05 18:30",
+    "terminal": "5",
+    "gate": "519",
+    "passenger": "John Smith",
+    "seat": "13A"
+  },
+  {
+    "flight_number": "QR4057",
+    "airline": "Qatar Airways",
+    "origin": "JFK",
+    "destination": "MCO",
+    "destination_city": "Orlando International",
+    "scheduled_time": "2026-02-05 20:30",
+    "terminal": "5",
+    "gate": "519",
+    "passenger": "John Smith",
+    "seat": "14A"
+  }
+]
