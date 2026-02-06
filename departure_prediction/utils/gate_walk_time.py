@@ -66,8 +66,8 @@ def get_gate_walk_time(terminal: str, gate: Optional[str] = None) -> int:
     # 게이트 범위에서 매칭
     for gate_range, (min_time, max_time) in terminal_data.items():
         if _is_gate_in_range(gate, gate_num, gate_range):
-            # 평균값 반환
-            return (min_time + max_time) // 2
+            # 평균값 반환 (반올림)
+            return round((min_time + max_time) / 2)
     
     # 매칭 실패 - 터미널 평균
     return _get_terminal_average(terminal_data)
@@ -150,9 +150,9 @@ def _get_terminal_average(terminal_data: dict) -> int:
     """터미널의 평균 이동 시간"""
     all_times = []
     for min_time, max_time in terminal_data.values():
-        all_times.append((min_time + max_time) // 2)
+        all_times.append((min_time + max_time) / 2)
     
-    return sum(all_times) // len(all_times) if all_times else 15
+    return round(sum(all_times) / len(all_times)) if all_times else 15
 
 
 if __name__ == '__main__':
