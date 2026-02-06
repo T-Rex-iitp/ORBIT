@@ -211,17 +211,27 @@ class HybridDeparturePredictor:
         }
         
         # 범주형 변수 인코딩
+        unknown_items = []
         try:
             encoded_features = features.copy()
             for col in ['op_unique_carrier', 'origin', 'dest']:
                 if col in self.label_encoders:
-                    encoded_features[col] = self.label_encoders[col].transform([features[col]])[0]
+                    try:
+                        encoded_features[col] = self.label_encoders[col].transform([features[col]])[0]
+                    except ValueError:
+                        # 학습 데이터에 없는 값은 0으로 설정
+                        encoded_features[col] = 0
+                        col_name = {'op_unique_carrier': '항공사', 'origin': '출발공항', 'dest': '도착공항'}[col]
+                        unknown_items.append(f"{col_name} '{features[col]}'")
                 else:
-                    # 학습 데이터에 없는 값은 0으로 설정
+                    # label_encoder 자체가 없는 경우
                     encoded_features[col] = 0
-        except ValueError:
+            
+            if unknown_items:
+                print(f"   ℹ️ 학습 데이터에 없는 항목: {', '.join(unknown_items)} (유사 패턴 기반 예측)")
+        except Exception as e:
             # 인코딩 실패 시 평균 지연 시간 반환
-            print(f"⚠️ 알 수 없는 항공사/공항: {airline_code}, {origin}, {dest}")
+            print(f"   ⚠️ 예측 오류: {str(e)} (기본값 사용)")
             return 15.0  # 기본값
         
         # Feature 배열 생성
@@ -479,6 +489,9 @@ class HybridDeparturePredictor:
 - 총 예상 지연: {total_predicted_delay:.0f}분
 - 실제 예상 출발: {actual_departure.strftime('%Y-%m-%d %H:%M')}
 {weather_text}
+출발 위치:
+- 주소: {address}
+
 소요 시간 계산:
 - 🚗 이동 시간: {travel_time_minutes}분 ({travel_mode_kr}){transit_route_text}
 - 🔒 보안 검색: {tsa_wait_minutes}분 {'(TSA PreCheck)' if has_tsa_precheck else ''}
