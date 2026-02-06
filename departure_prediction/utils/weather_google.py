@@ -118,33 +118,36 @@ class GoogleWeatherAPI:
             if response.status_code == 200:
                 data = response.json()
                 
-                # Google Weather API 응답 구조
-                current = data.get('currentConditions', {})
-                
+                # Google Weather API 응답은 root에 직접 포함됨
                 # 날씨 코드를 condition으로 변환
-                weather_code = current.get('weatherCode', 'CLEAR')
-                condition = self._map_weather_code(weather_code)
+                weather_condition = data.get('weatherCondition', {})
+                weather_type = weather_condition.get('type', 'CLEAR')
+                condition = self._map_weather_code(weather_type)
+                description = weather_condition.get('description', {}).get('text', 'clear')
                 
-                # Temperature는 Celsius로 제공됨
-                temp_celsius = current.get('temperature', {}).get('value', 15)
+                # Temperature: degrees field 사용
+                temp_data = data.get('temperature', {})
+                temp_celsius = temp_data.get('degrees', 15)
                 
                 # Wind speed: m/s
-                wind_speed_mps = current.get('windSpeed', {}).get('value', 0)
+                wind_data = data.get('wind', {})
+                wind_speed_mps = wind_data.get('speedMetersPerSecond', 0)
                 
                 # Visibility: meters
-                visibility_m = current.get('visibility', {}).get('value', 10000)
+                visibility_data = data.get('visibility', {})
+                visibility_m = visibility_data.get('distanceMeters', 10000)
                 
                 return {
                     'condition': condition,
-                    'description': weather_code.lower().replace('_', ' '),
-                    'temperature': temp_celsius,
-                    'feels_like': current.get('temperatureApparent', {}).get('value', temp_celsius),
-                    'humidity': current.get('relativeHumidity', 50),
-                    'pressure': current.get('pressureSeaLevel', {}).get('value', 1013),
-                    'wind_speed': wind_speed_mps,
-                    'wind_deg': current.get('windDirection', 0),
+                    'description': description.lower(),
+                    'temperature': round(temp_celsius, 1),
+                    'feels_like': round(data.get('feelsLikeTemperature', {}).get('degrees', temp_celsius), 1),
+                    'humidity': data.get('relativeHumidity', 50),
+                    'pressure': 1013,  # 기본값
+                    'wind_speed': round(wind_speed_mps, 1),
+                    'wind_deg': wind_data.get('directionDegrees', 0),
                     'visibility': visibility_m,
-                    'clouds': current.get('cloudCover', 0),
+                    'clouds': 0,  # API에서 제공 안함
                     'timestamp': datetime.now()
                 }
             else:
