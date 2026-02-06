@@ -462,67 +462,67 @@ class HybridDeparturePredictor:
             if weather_delay > 0:
                 weather_text += f"  - 예상 추가 지연: +{weather_delay}분\n"
         
-        # 이동 수단 한글명
-        travel_mode_kr = {
-            'DRIVE': '자동차',
-            'TRANSIT': '대중교통',
-            'WALK': '도보',
-            'BICYCLE': '자전거'
+        # English mode names
+        travel_mode_en = {
+            'DRIVE': 'driving',
+            'TRANSIT': 'public transit',
+            'WALK': 'walking',
+            'BICYCLE': 'bicycle'
         }.get(travel_mode, travel_mode)
         
-        # 실시간 지연 정보 텍스트 (명확한 근거 포함)
+        # Real-time delay information text (with clear source)
         delay_source_text = ""
         if use_real_time:
             delay_source_text = f"""
-- 지연 정보 출처: 항공사 공식 발표 (실시간 API)
-- 현재 상태: {real_time_status['status_kr']}
-- 공식 발표 지연: {real_time_status['delay_minutes']}분
-- 근거: 항공사가 직접 발표한 실시간 운항 정보"""
+- Delay information source: Official airline announcement (real-time API)
+- Current status: {real_time_status.get('status', 'N/A')}
+- Official announced delay: {real_time_status['delay_minutes']} minutes
+- Basis: Real-time flight information directly published by the airline"""
         else:
             delay_source_text = f"""
-- 지연 정보 출처: AI 모델 예측 (FT-Transformer)
-- AI 예측 지연: {predicted_delay:.0f}분
-- 근거: 과거 60,000+ 항공편 데이터 학습, 동일 항공사/노선/시간대 통계 분석"""
+- Delay information source: AI model prediction (FT-Transformer)
+- AI predicted delay: {predicted_delay:.0f} minutes
+- Basis: Trained on 60,000+ historical flight data, analysis of same airline/route/time"""
         
         context = f"""
-비행 정보:
-- 항공편: {flight_info.get('flight_number', 'N/A')} ({flight_info.get('airline_name', flight_info['airline_code'])})
-- 출발 공항: {flight_info['origin']}
-- 예정 출발 시각: {flight_info['scheduled_time'].strftime('%Y-%m-%d %H:%M')}
+Flight Information:
+- Flight: {flight_info.get('flight_number', 'N/A')} ({flight_info.get('airline_name', flight_info['airline_code'])})
+- Departure Airport: {flight_info['origin']}
+- Scheduled Departure: {flight_info['scheduled_time'].strftime('%Y-%m-%d %H:%M')}
 {delay_source_text}
-- 날씨 추가 지연: {weather_delay}분
-- 총 예상 지연: {total_predicted_delay:.0f}분
-- 실제 예상 출발: {actual_departure.strftime('%Y-%m-%d %H:%M')}
+- Weather-related delay: {weather_delay} minutes
+- Total expected delay: {total_predicted_delay:.0f} minutes
+- Actual expected departure: {actual_departure.strftime('%Y-%m-%d %H:%M')}
 {weather_text}
-출발 위치:
-- 주소: {address}
+Departure Location:
+- Address: {address}
 
-소요 시간 계산:
-- 🚗 이동 시간: {travel_time_minutes}분 ({travel_mode_kr}){transit_route_text}
-- 🔒 보안 검색: {tsa_wait_minutes}분 {'(TSA PreCheck)' if has_tsa_precheck else ''}
-- 🧳 수하물 체크인: {baggage_check_minutes}분 {'(체크인 필요)' if has_checked_baggage else '(기내 반입만)'}
-- 🚶 게이트 이동: {gate_walk_minutes}분
-- ⏱️ 총 소요 시간: {total_time}분
+Time Breakdown:
+- 🚗 Travel time: {travel_time_minutes} minutes ({travel_mode_en}){transit_route_text}
+- 🔒 Security screening: {tsa_wait_minutes} minutes {'(TSA PreCheck)' if has_tsa_precheck else ''}
+- 🧳 Baggage check-in: {baggage_check_minutes} minutes {'(check-in required)' if has_checked_baggage else '(carry-on only)'}
+- 🚶 Gate walk: {gate_walk_minutes} minutes
+- ⏱️ Total time needed: {total_time} minutes
 
-공항 도착 목표: {airport_arrival_target.strftime('%Y-%m-%d %H:%M')} (실제 출발 2시간 전)
-📍 추천 출발 시간: {recommended_departure.strftime('%Y-%m-%d %H:%M')}
+Target airport arrival: {airport_arrival_target.strftime('%Y-%m-%d %H:%M')} (2 hours before actual departure)
+📍 Recommended departure time: {recommended_departure.strftime('%Y-%m-%d %H:%M')}
 """
         
-        prompt = f"""당신은 한국어로 친절하게 안내하는 여행 어시스턴트입니다.
-다음 항공편 출발 정보를 바탕으로 자연스러운 한국어로 출발 시간을 추천해주세요.
+        prompt = f"""You are a helpful travel assistant who provides clear, friendly guidance in English.
+Based on the following flight departure information, please recommend a departure time in natural, conversational English.
 
 {context}
 
-다음 내용을 포함하여 자연스럽고 친절한 한국어로 답변해주세요:
-1. 추천 출발 시간 강조
-2. 각 소요 시간 항목 설명 (특히 대중교통 이용 시 환승 경로를 자세히 설명)
-3. 지연 예측 근거 설명:
-   - 실시간 항공사 정보가 있으면: "항공사 공식 발표에 따르면 현재 XX분 지연이 예상됩니다"
-   - AI 예측인 경우: "AI 모델이 과거 동일 노선/시간대 데이터를 분석한 결과 평균 XX분 지연이 예상됩니다"
-4. 날씨 상황과 지연 위험도 설명 (악천후 시 주의사항 포함)
-5. 추가 팁 (대중교통 이용 시 교통카드 충전, 환승 시 주의사항, 날씨 대비 등)
+Please include the following in your response in natural, friendly English:
+1. Emphasize the recommended departure time
+2. Explain each time component (especially detailed transit routes if using public transportation)
+3. Explain the delay prediction basis:
+   - If real-time airline data available: "According to the airline's official announcement, a delay of XX minutes is currently expected"
+   - If AI prediction: "Based on AI analysis of historical data for the same route/time period, an average delay of XX minutes is predicted"
+4. Describe weather conditions and delay risk (including precautions for severe weather)
+5. Additional tips (transit card top-up for public transport, transfer precautions, weather preparation, etc.)
 
-JSON이나 마크다운 없이 일반 텍스트로 답변해주세요."""
+Please respond in plain text without JSON or markdown formatting."""
         
         # Ollama API 호출
         try:
@@ -541,26 +541,26 @@ JSON이나 마크다운 없이 일반 텍스트로 답변해주세요."""
                 recommendation_text = result.get('response', '')
             else:
                 recommendation_text = f"""
-✈️ 출발 시간 추천
+✈️ Departure Time Recommendation
 
-{flight_info.get('flight_number', 'N/A')} 편 ({flight_info.get('airline_name', flight_info['airline_code'])})
-출발 예정: {flight_info['scheduled_time'].strftime('%Y-%m-%d %H:%M')}
-실제 출발: {actual_departure.strftime('%Y-%m-%d %H:%M')} (지연 {total_predicted_delay:.0f}분)
+Flight {flight_info.get('flight_number', 'N/A')} ({flight_info.get('airline_name', flight_info['airline_code'])})
+Scheduled: {flight_info['scheduled_time'].strftime('%Y-%m-%d %H:%M')}
+Actual departure: {actual_departure.strftime('%Y-%m-%d %H:%M')} ({total_predicted_delay:.0f} min delay)
 
-📍 추천 출발 시간: {recommended_departure.strftime('%H:%M')}
+📍 Recommended departure time: {recommended_departure.strftime('%H:%M')}
 
-소요 시간:
-- 이동: {travel_time_minutes}분 ({travel_mode_kr}){transit_route_text}
-- TSA: {tsa_wait_minutes}분
-- 수하물: {baggage_check_minutes}분
-- 게이트: {gate_walk_minutes}분
-- 총: {total_time}분
+Time breakdown:
+- Travel: {travel_time_minutes} min ({travel_mode_en}){transit_route_text}
+- TSA: {tsa_wait_minutes} min
+- Baggage: {baggage_check_minutes} min
+- Gate walk: {gate_walk_minutes} min
+- Total: {total_time} min
 
-날씨: {weather['condition']} (지연 위험 {weather['delay_risk']}, +{weather_delay}분)
+Weather: {weather['condition']} (delay risk {weather['delay_risk']}, +{weather_delay} min)
 """
         except Exception as e:
-            print(f"   ⚠️ LLM 호출 실패: {e}")
-            recommendation_text = f"추천 출발 시간: {recommended_departure.strftime('%H:%M')}"
+            print(f"   ⚠️ LLM call failed: {e}")
+            recommendation_text = f"Recommended departure time: {recommended_departure.strftime('%H:%M')}"
         
         return {
             'success': True,
