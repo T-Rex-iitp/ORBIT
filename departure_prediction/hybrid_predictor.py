@@ -19,6 +19,7 @@ from utils.google_routes import calculate_travel_time
 from utils.tsa_wait_time import get_tsa_wait_time
 from utils.weather_google import get_weather
 from utils.flight_status_checker import check_flight
+from utils.gate_walk_time import get_gate_walk_time
 import requests
 import json
 import os
@@ -405,8 +406,12 @@ class HybridDeparturePredictor:
         else:
             print(f"   🎒 기내 반입만 (체크인 불필요)")
         
-        # 7. 게이트 이동 시간
-        gate_walk_minutes = 15  # 게이트 이동
+        # 7. 게이트 이동 시간 (터미널/게이트 정보 기반)
+        terminal = flight_info.get('terminal', 'Terminal 4')  # 기본값: Terminal 4 (국제선)
+        gate = flight_info.get('gate', None)
+        gate_walk_minutes = get_gate_walk_time(terminal, gate)
+        
+        print(f"   🚶 게이트 이동: {gate_walk_minutes}분 ({terminal}, Gate {gate if gate else 'N/A'})")
         
         # 8. 총 소요 시간 계산
         total_time = travel_time_minutes + tsa_wait_minutes + baggage_check_minutes + gate_walk_minutes
