@@ -9,7 +9,16 @@ from pathlib import Path
 
 sys.path.append(str(Path(__file__).parent))
 
-from utils.ticket_ocr import TicketOCR
+# LLM/VLM 선택: Gemini 또는 Ollama
+USE_GEMINI = os.getenv('USE_GEMINI', 'false').lower() == 'true'
+
+if USE_GEMINI:
+    from utils.gemini_direct_client import GeminiTicketOCR as TicketOCR
+    print("🤖 Using Google Gemini Vision for ticket OCR")
+else:
+    from utils.ticket_ocr import TicketOCR
+    print("🤖 Using Ollama Vision for ticket OCR")
+
 from hybrid_predictor import HybridDeparturePredictor
 
 
@@ -54,8 +63,11 @@ def get_flight_info_from_image():
             continue
         
         try:
-            print("\n🔍 Analyzing image... (LLaVA-Phi3)")
-            ocr = TicketOCR(method='vision')
+            print(f"\n🔍 Analyzing image... ({'Gemini' if USE_GEMINI else 'LLaVA-Phi3'})")
+            if USE_GEMINI:
+                ocr = TicketOCR()
+            else:
+                ocr = TicketOCR(method='vision')
             flight_data = ocr.extract_with_vision(image_path)
             
             print("\n✅ Ticket information extracted:")

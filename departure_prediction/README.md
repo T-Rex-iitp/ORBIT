@@ -1,11 +1,11 @@
 # AI-Enabled Flight Departure Time Predictor
 
-AI 기반 항공편 출발 시간 추천 시스템. Transformer 모델, 실시간 API, LLM을 결합하여 최적의 집 출발 시간을 추천합니다.
+AI 기반 항공편 출발 시간 추천 시스템. Transformer 모델, 실시간 API, Google Gemini를 결합하여 최적의 집 출발 시간을 추천합니다.
 
 ## 🎯 주요 기능
 
 1. **다중 입력 방식**
-   - 티켓 이미지 업로드 (Ollama LLaVA OCR)
+   - 티켓 이미지 업로드 (Google Gemini Vision OCR)
    - 수동 정보 입력
 
 2. **실시간 지연 예측**
@@ -19,8 +19,8 @@ AI 기반 항공편 출발 시간 추천 시스템. Transformer 모델, 실시�
    - 수하물 체크인 시간 (30분 vs 기내반입 0분)
    - 게이트 이동 시간
 
-4. **한국어 LLM 추천**
-   - Ollama gpt-oss:120b (65GB 한국어 LLM)
+4. **AI 추천**
+   - Google Gemini LLM + Vision (통합 API)
    - 자연스러운 설명과 추가 팁 제공
 
 ## 🏗️ 시스템 아키텍처
@@ -28,7 +28,7 @@ AI 기반 항공편 출발 시간 추천 시스템. Transformer 모델, 실시�
 ```
 티켓 이미지/수동 입력
     ↓
-VLM (LLaVA-Phi3) / 직접 입력
+Gemini Vision OCR / 직접 입력
     ↓
 실시간 항공편 상태 확인 (AviationStack API)
     ├─ 지연 정보 있음 → 항공사 공식 발표 사용
@@ -40,10 +40,81 @@ VLM (LLaVA-Phi3) / 직접 입력
     ↓
 공항 도착 목표 = 실제 출발 - 2시간
     ↓
-LLM 한국어 추천 (gpt-oss:120b)
+Gemini LLM 자연어 추천
 ```
 
-## 📦 설치
+## 📦 빠른 시작 (Quick Start)
+
+### 1. 레포 클론
+
+```bash
+git clone https://github.com/T-Rex-iitp/AI-Enabled-IFTA.git
+cd AI-Enabled-IFTA/departure_prediction
+```
+
+### 2. 라이브러리 설치
+
+```bash
+pip install -r requirements.txt
+```
+
+### 3. 환경 변수 설정
+
+```bash
+# .env 파일 생성 또는 직접 export
+export GEMINI_API_KEY=your_gemini_api_key
+export USE_GEMINI=true
+export GOOGLE_MAPS_API_KEY=your_google_maps_key
+export AVIATIONSTACK_API_KEY=your_aviationstack_key
+```
+
+**API 키 발급:**
+- **Gemini API**: https://aistudio.google.com/app/apikey (무료)
+- **Google Maps**: https://console.cloud.google.com/ ($300 무료 크레딧)
+- **AviationStack**: https://aviationstack.com/ (무료: 100 requests/월)
+
+### 4. 바로 실행
+
+```bash
+python app_interactive.py
+```
+
+## 🔧 상세 설정
+
+### 환경 변수 (.env 파일)
+
+```bash
+# Google Maps API (Routes + Weather)
+GOOGLE_MAPS_API_KEY=AIzaSy...
+
+# AviationStack API (실시간 항공편 정보)
+AVIATIONSTACK_API_KEY=6a3f93...
+
+# Gemini API (LLM + Vision)
+GEMINI_API_KEY=AIzaSy...
+
+# Gemini 사용 활성화
+USE_GEMINI=true
+```
+
+### Ollama 로컬 모델 사용 (선택사항)
+
+Gemini 대신 로컬 모델을 사용하려면:
+
+```bash
+# Ollama 설치
+curl -fsSL https://ollama.ai/install.sh | sh
+
+# 모델 다운로드
+ollama pull gpt-oss:120b  # 65GB
+ollama pull llava-phi3    # 2.9GB
+
+# 환경 변수
+export USE_GEMINI=false
+export OLLAMA_HOST=http://127.0.0.1:11434
+```
+
+## 📦 설치 (구버전 - Ollama 전용)
 
 ### 1. Python 패키지 설치
 

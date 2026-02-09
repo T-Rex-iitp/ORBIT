@@ -20,6 +20,20 @@ from utils.tsa_wait_time import get_tsa_wait_time
 from utils.weather_google import get_weather
 from utils.flight_status_checker import check_flight
 from utils.gate_walk_time import get_gate_walk_time
+from utils.resilience import (
+    ResilientAPIWrapper,
+    get_fallback_travel_time,
+    get_fallback_tsa_wait,
+    get_fallback_weather,
+    get_fallback_flight_status,
+    validate_flight_info,
+    ResilienceConfig
+)
+from utils.cache import (
+    cache_manager,
+    historical_fallback,
+    cached_api_call
+)
 import requests
 import json
 import os
@@ -132,21 +146,57 @@ class FlightDelayTransformer(nn.Module):
 class HybridDeparturePredictor:
     """하이브리드 출발 시간 예측 시스템"""
     
-    def __init__(self, model_path='models/delay_predictor_full.pkl'):
+    def __init__(
+        self, 
+        model_path='models/delay_predictor_full.pkl', 
+        use_gcs=False, 
+        gcs_bucket=None,
+        use_gemini=False,
+        gemini_project_id=None
+    ):
         """
         Args:
-            model_path: 학습된 Transformer 모델 경로
+            model_path: 학습된 Transformer 모델 경로 (로컬 또는 GCS 경로)
+            use_gcs: GCS에서 모델 로드 여부
+            gcs_bucket: GCS 버킷 이름 (use_gcs=True일 때 필요)
+            use_gemini: Gemini 사용 여부 (True면 Ollama 대신 Gemini)
+            gemini_project_id: GCP 프로젝트 ID (환경변수에서도 가능)
         """
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        self.use_gcs = use_gcs
+        self.gcs_bucket = gcs_bucket or os.getenv('GCS_MODEL_BUCKET')
+        self.use_gemini = use_gemini or os.getenv('USE_GEMINI', 'false').lower() == 'true'
+        self.gemini_project_id = gemini_project_id or os.getenv('GCP_PROJECT_ID')
+        
         self.load_model(model_path)
-        self.ollama_url = os.getenv('OLLAMA_HOST', 'http://127.0.0.1:11434')
+        
+        # LLM 클라이언트 초기화
+        if self.use_gemini:
+            print("🤖 Using Google Gemini for LLM")
+            from utils.gemini_client import GeminiClient
+            self.llm_client = GeminiClient(project_id=self.gemini_project_id)
+        else:
+            print("🤖 Using Ollama for LLM")
+            self.ollama_url = os.getenv('OLLAMA_HOST', 'http://127.0.0.1:11434')
+            self.llm_client = None
         
     def load_model(self, model_path):
-        """학습된 모델 로드"""
-        print(f"📦 모델 로딩: {model_path}")
-        
-        with open(model_path, 'rb') as f:
-            package = pickle.load(f)
+        """학습된 모델 로드 (로컬 또는 GCS)"""
+        if self.use_gcs:
+            # GCS에서 직접 로드 (다운로드 없이 메모리에만)
+            print(f"📦 Loading model from GCS: gs://{self.gcs_bucket}/{model_path}")
+            from utils.gcs_model_loader import GCSModelLoader
+            
+            if not self.gcs_bucket:
+                raise ValueError("GCS bucket name required. Set GCS_MODEL_BUCKET env var or pass gcs_bucket parameter")
+            
+            loader = GCSModelLoader(self.gcs_bucket)
+            package = loader.load_pickle_model(model_path)
+        else:
+            # 로컬에서 로드
+            print(f"📦 모델 로딩: {model_path}")
+            with open(model_path, 'rb') as f:
+                package = pickle.load(f)
         
         # 모델 재생성 (FT-Transformer)
         config = package['model_config']
@@ -252,7 +302,7 @@ class HybridDeparturePredictor:
     
     def recommend_departure(self, address, flight_info, travel_mode='DRIVE'):
         """
-        하이브리드 시스템으로 출발 시간 추천
+        하이브리드 시스템으로 출발 시간 추천 (복원력 강화)
         
         Args:
             address: 출발 주소
@@ -269,72 +319,140 @@ class HybridDeparturePredictor:
         Returns:
             recommendation: LLM 추천 결과 (dict)
         """
-        print(f"\n🔍 하이브리드 예측 시작...")
+        print(f"\n🔍 Hybrid prediction started...")
         
-        # 1. 실시간 항공편 상태 확인 (AviationStack API)
-        print(f"   🛫 실시간 항공편 상태 확인 중...")
-        real_time_status = check_flight(flight_info['flight_number'])
+        # 입력 데이터 검증 및 보정
+        try:
+            flight_info = validate_flight_info(flight_info)
+            print(f"   ✅ Flight information validated")
+        except ValueError as e:
+            return {
+                'success': False,
+                'error': f'Invalid flight information: {e}'
+            }
+        
+        # 1. 실시간 항공편 상태 확인 (캐싱 + 복원력)
+        print(f"   🛫 Checking real-time flight status...")
+        
+        def fetch_flight_status():
+            # 캐시 확인 먼저
+            try:
+                return cached_api_call(
+                    category='flight_status',
+                    api_func=lambda: check_flight(flight_info['flight_number']),
+                    use_stale_on_error=True,
+                    flight_number=flight_info['flight_number'],
+                    date=flight_info['scheduled_time'].date().isoformat()
+                )
+            except:
+                # 캐시도 없으면 과거 통계 사용
+                route = f"{flight_info['origin']}-{flight_info['dest']}"
+                avg_delay = historical_fallback.get_avg_flight_delay(
+                    flight_info['airline_code'], 
+                    route
+                )
+                print(f"   📊 Using historical average delay: {avg_delay:.1f} min")
+                return {
+                    'status': 'scheduled',
+                    'is_delayed': False,
+                    'delay_minutes': avg_delay,
+                    'scheduled_departure': None,
+                    'fallback_used': True
+                }
+        
+        real_time_status = fetch_flight_status()
         
         # 실시간 정보가 있고 날짜가 일치하는 경우만 사용
         use_real_time = False
-        if real_time_status and real_time_status.get('scheduled_departure'):
+        if real_time_status and real_time_status.get('scheduled_departure') and not real_time_status.get('fallback_used'):
             api_date = real_time_status['scheduled_departure'].date()
             ticket_date = flight_info['scheduled_time'].date()
             
             # 날짜가 일치하고 지연 정보가 있으면 사용
             if api_date == ticket_date and real_time_status.get('is_delayed'):
                 real_delay = real_time_status['delay_minutes']
-                print(f"   ⚠️ 실시간 지연 정보: {real_delay}분")
-                print(f"   📡 항공사 발표: {real_time_status['status_kr']}")
+                print(f"   ⚠️ Real-time delay info: {real_delay} min")
+                print(f"   📡 Airline announcement: {real_time_status['status_kr']}")
                 if real_time_status.get('estimated_departure'):
-                    print(f"   🕐 예상 출발: {real_time_status['estimated_departure'].strftime('%H:%M')}")
+                    print(f"   🕐 Estimated departure: {real_time_status['estimated_departure'].strftime('%H:%M')}")
                 
                 # 실시간 정보를 우선 사용
                 predicted_delay = real_delay
                 use_real_time = True
+                
+                # 통계 업데이트
+                route = f"{flight_info['origin']}-{flight_info['dest']}"
+                historical_fallback.update_flight_delay(
+                    flight_info['airline_code'], 
+                    route, 
+                    real_delay
+                )
             elif api_date != ticket_date:
-                print(f"   ⚠️ API 데이터 날짜 불일치 (API: {api_date}, 티켓: {ticket_date}) - 티켓 정보 우선 사용")
+                print(f"   ⚠️ API date mismatch (API: {api_date}, Ticket: {ticket_date}) - Using ticket info")
         
         if not use_real_time:
             # 2. 실시간 정보가 없으면 Transformer로 지연 시간 예측
-            predicted_delay = self.predict_delay(
-                airline_code=flight_info['airline_code'],
-                origin=flight_info['origin'],
-                dest=flight_info['dest'],
-                flight_datetime=flight_info['scheduled_time']
-            )
-            print(f"   📊 예상 지연: {predicted_delay:.1f}분 (AI 예측)")
+            try:
+                predicted_delay = self.predict_delay(
+                    airline_code=flight_info['airline_code'],
+                    origin=flight_info['origin'],
+                    dest=flight_info['dest'],
+                    flight_datetime=flight_info['scheduled_time']
+                )
+                print(f"   📊 Predicted delay: {predicted_delay:.1f} min (AI prediction)")
+            except Exception as e:
+                print(f"   ⚠️ AI prediction failed: {e}")
+                print(f"   🔄 Using default delay estimate")
+                predicted_delay = ResilienceConfig.DEFAULT_FLIGHT_DELAY
+            
             use_real_time = False
         
         # 3. 실제 출발 시간 계산 (scheduled + 예상지연)
         actual_departure = flight_info['scheduled_time'] + timedelta(minutes=predicted_delay)
         
-        # 4. 날씨 정보 조회 (출발 시간 기준)
-        print(f"   🌤️ 날씨 정보 조회 중...")
-        weather = get_weather(flight_info['origin'], actual_departure)  # 실제 출발 시간 기준
+        # 4. 날씨 정보 조회 (캐싱 + 복원력)
+        print(f"   🌤️ Fetching weather information...")
         
-        if weather['delay_risk'] != 'unknown':
+        def fetch_weather():
+            try:
+                return cached_api_call(
+                    category='weather',
+                    api_func=lambda: get_weather(flight_info['origin'], actual_departure),
+                    use_stale_on_error=True,
+                    airport=flight_info['origin'],
+                    date=actual_departure.date().isoformat(),
+                    hour=actual_departure.hour
+                )
+            except:
+                # 캐시도 없으면 안전한 기본값
+                print(f"   📊 Using safe weather default")
+                return get_fallback_weather()
+        
+        weather = fetch_weather()
+        if weather:
             hours_left = weather.get('hours_until_flight', 0)
             time_note = ""
             if hours_left > 6:
-                time_note = f" (출발까지 {hours_left:.0f}시간 - 현재 날씨 기준)"
+                time_note = f" ({hours_left:.0f} hours until departure - current weather)"
             elif hours_left > 0:
-                time_note = f" (출발까지 {hours_left:.0f}시간)"
+                time_note = f" ({hours_left:.0f} hours until departure)"
             
             print(f"   🌤️ {weather['airport']}: {weather['condition']} - {weather['description']}{time_note}")
-            print(f"      온도 {weather['temperature']}°C, 풍속 {weather['wind_speed']} m/s")
-            print(f"      지연 위험도: {weather['delay_risk'].upper()}")
+            print(f"      Temperature {weather['temperature']}°C, Wind {weather['wind_speed']} m/s")
+            print(f"      Delay risk: {weather['delay_risk'].upper()}")
             if weather['warning']:
                 print(f"      ⚠️ {weather['warning']}")
+        else:
+            print(f"   ⚠️ Weather data unavailable, assuming normal conditions")
         
         # 날씨에 따른 추가 지연 시간 계산
         weather_delay = 0
         if weather['delay_risk'] == 'high':
             weather_delay = 30  # 악천후 시 30분 추가
-            print(f"      ⚠️ 악천후로 인한 추가 지연 예상: +{weather_delay}분")
+            print(f"      ⚠️ Additional delay expected due to bad weather: +{weather_delay} min")
         elif weather['delay_risk'] == 'medium':
             weather_delay = 15  # 보통 날씨 15분 추가
-            print(f"      ⚠️ 날씨로 인한 추가 지연 가능: +{weather_delay}분")
+            print(f"      ⚠️ Possible additional delay due to weather: +{weather_delay} min")
         
         total_predicted_delay = predicted_delay + weather_delay
         actual_departure = flight_info['scheduled_time'] + timedelta(minutes=total_predicted_delay)
@@ -358,28 +476,56 @@ class HybridDeparturePredictor:
                 estimated_departure = now
                 print(f"   ⚠️ 비행기가 이미 출발했거나 임박했습니다.")
         
-        # 4. Google Routes API로 이동 시간 계산
-        print(f"   🗺️ 이동 시간 계산 중... ({travel_mode})")
-        travel_time_result = calculate_travel_time(
-            origin=address,
-            destination=flight_info['origin'],
-            travel_mode=travel_mode,
-            departure_time=estimated_departure
-        )
+        # 4. Google Routes API로 이동 시간 계산 (캐싱 + 복원력)
+        print(f"   🗺️ Calculating travel time... ({travel_mode})")
         
-        if not travel_time_result['success']:
-            return {
-                'success': False,
-                'error': travel_time_result['error']
-            }
+        def fetch_travel_time():
+            try:
+                return cached_api_call(
+                    category='travel_time',
+                    api_func=lambda: calculate_travel_time(
+                        origin=address,
+                        destination=flight_info['origin'],
+                        travel_mode=travel_mode,
+                        departure_time=estimated_departure
+                    ),
+                    use_stale_on_error=True,
+                    origin=address[:50],  # 주소 길이 제한
+                    destination=flight_info['origin'],
+                    mode=travel_mode,
+                    hour=estimated_departure.hour
+                )
+            except:
+                # 캐시도 없으면 과거 통계 사용
+                avg_time = historical_fallback.get_avg_travel_time(
+                    address[:50],
+                    flight_info['origin'],
+                    travel_mode
+                )
+                print(f"   📊 Using historical average: {avg_time} min")
+                return get_fallback_travel_time(travel_mode)
+        
+        travel_time_result = fetch_travel_time()
+        
+        if not travel_time_result.get('success'):
+            print(f"   ⚠️ Using fallback travel time")
+            travel_time_result = get_fallback_travel_time(travel_mode)
+        else:
+            # 성공 시 통계 업데이트
+            historical_fallback.update_travel_time(
+                address[:50],
+                flight_info['origin'],
+                travel_mode,
+                travel_time_result['duration_minutes']
+            )
         
         travel_time_minutes = travel_time_result['duration_minutes']
-        print(f"   🚗 이동 시간: {travel_time_minutes}분")
+        print(f"   🚗 Travel time: {travel_time_minutes} min")
         
         # Transit 세부 경로 정보
         transit_details = travel_time_result.get('transit_details')
-        if transit_details:
-            print(f"   🚇 대중교통 경로:")
+        if transit_details and not travel_time_result.get('fallback_used'):
+            print(f"   🚇 Public transit route:")
             for i, detail in enumerate(transit_details, 1):
                 vehicle_icon = {
                     'SUBWAY': '🚇',
@@ -387,31 +533,70 @@ class HybridDeparturePredictor:
                     'TRAIN': '🚂',
                     'RAIL': '🚆'
                 }.get(detail['vehicle_type'], '🚌')
-                print(f"      {i}. {vehicle_icon} {detail['line']} - {detail['from']} → {detail['to']} ({detail['stops']}정거장)")
+                print(f"      {i}. {vehicle_icon} {detail['line']} - {detail['from']} → {detail['to']} ({detail['stops']} stops)")
         
-        # 5. TSA 보안검색 대기시간 계산
+        # 5. TSA 보안검색 대기시간 계산 (캐싱 + 복원력)
         has_tsa_precheck = flight_info.get('has_tsa_precheck', False)
-        tsa_wait_minutes = get_tsa_wait_time(
-            airport_code=flight_info['origin'],
-            departure_time=flight_info['scheduled_time'],
-            has_precheck=has_tsa_precheck
-        )
-        print(f"   🔒 TSA 대기시간: {tsa_wait_minutes}분 {'(PreCheck)' if has_tsa_precheck else ''}")
+        
+        def fetch_tsa_wait():
+            try:
+                return cached_api_call(
+                    category='tsa_wait',
+                    api_func=lambda: get_tsa_wait_time(
+                        airport_code=flight_info['origin'],
+                        departure_time=flight_info['scheduled_time'],
+                        has_precheck=has_tsa_precheck
+                    ),
+                    use_stale_on_error=True,
+                    airport=flight_info['origin'],
+                    hour=flight_info['scheduled_time'].hour,
+                    precheck=has_tsa_precheck
+                )
+            except:
+                # 캐시도 없으면 과거 통계 사용
+                avg_wait = historical_fallback.get_avg_tsa_wait(
+                    flight_info['origin'],
+                    flight_info['scheduled_time'].hour,
+                    has_tsa_precheck
+                )
+                print(f"   📊 Using historical TSA average: {avg_wait} min")
+                return avg_wait
+        
+        tsa_wait_minutes = fetch_tsa_wait()
+        
+        if isinstance(tsa_wait_minutes, dict):
+            # API 응답이 dict 형식인 경우
+            tsa_wait_minutes = tsa_wait_minutes.get('wait_time', get_fallback_tsa_wait(has_tsa_precheck))
+        
+        # 통계 업데이트
+        if tsa_wait_minutes and tsa_wait_minutes > 0:
+            historical_fallback.update_tsa_wait(
+                flight_info['origin'],
+                flight_info['scheduled_time'].hour,
+                tsa_wait_minutes
+            )
+        
+        print(f"   🔒 TSA wait: {tsa_wait_minutes} min {'(PreCheck)' if has_tsa_precheck else ''}")
         
         # 6. 수하물 체크인 시간 계산
         has_checked_baggage = flight_info.get('has_checked_baggage', False)
         baggage_check_minutes = 30 if has_checked_baggage else 0
         if has_checked_baggage:
-            print(f"   🧳 수하물 체크인: {baggage_check_minutes}분")
+            print(f"   🧳 Baggage check-in: {baggage_check_minutes} min")
         else:
-            print(f"   🎒 기내 반입만 (체크인 불필요)")
+            print(f"   🎒 Carry-on only (no check-in required)")
         
         # 7. 게이트 이동 시간 (터미널/게이트 정보 기반)
         terminal = flight_info.get('terminal', 'Terminal 4')  # 기본값: Terminal 4 (국제선)
         gate = flight_info.get('gate', None)
-        gate_walk_minutes = get_gate_walk_time(terminal, gate)
         
-        print(f"   🚶 게이트 이동: {gate_walk_minutes}분 ({terminal}, Gate {gate if gate else 'N/A'})")
+        try:
+            gate_walk_minutes = get_gate_walk_time(terminal, gate)
+        except Exception as e:
+            print(f"   ⚠️ Gate walk time calculation failed: {e}")
+            gate_walk_minutes = ResilienceConfig.DEFAULT_GATE_WALK
+        
+        print(f"   🚶 Gate walk: {gate_walk_minutes} min ({terminal}, Gate {gate if gate else 'N/A'})")
         
         # 8. 총 소요 시간 계산
         total_time = travel_time_minutes + tsa_wait_minutes + baggage_check_minutes + gate_walk_minutes
@@ -419,22 +604,22 @@ class HybridDeparturePredictor:
         # 9. 추천 출발 시간 = 공항 도착 목표 - 총 소요 시간
         recommended_departure = airport_arrival_target - timedelta(minutes=total_time)
         
-        print(f"\n   ✅ 계산 완료:")
-        print(f"      항공편 예정 출발: {flight_info['scheduled_time'].strftime('%H:%M')}")
-        print(f"      예상 실제 출발: {actual_departure.strftime('%H:%M')} (지연 +{total_predicted_delay}분)")
-        print(f"      공항 도착 목표: {airport_arrival_target.strftime('%H:%M')} (출발 2시간 전)")
+        print(f"\n   ✅ Calculation complete:")
+        print(f"      Scheduled flight departure: {flight_info['scheduled_time'].strftime('%H:%M')}")
+        print(f"      Actual expected departure: {actual_departure.strftime('%H:%M')} (+{total_predicted_delay} min delay)")
+        print(f"      Target airport arrival: {airport_arrival_target.strftime('%H:%M')} (2 hours before departure)")
         print(f"")
-        print(f"      📊 총 소요 시간: {total_time}분 ({total_time//60}시간 {total_time%60}분)")
-        print(f"         - 🚗 이동: {travel_time_minutes}분")
-        print(f"         - 🔒 TSA: {tsa_wait_minutes}분")
+        print(f"      📊 Total time required: {total_time} min ({total_time//60}h {total_time%60}min)")
+        print(f"         - 🚗 Travel: {travel_time_minutes} min")
+        print(f"         - 🔒 TSA: {tsa_wait_minutes} min")
         if baggage_check_minutes > 0:
-            print(f"         - 🧳 수하물: {baggage_check_minutes}분")
-        print(f"         - 🚶 게이트: {gate_walk_minutes}분")
+            print(f"         - 🧳 Baggage: {baggage_check_minutes} min")
+        print(f"         - 🚶 Gate: {gate_walk_minutes} min")
         print(f"")
-        print(f"      ✈️ 추천 출발 시간: {recommended_departure.strftime('%H:%M')}")
+        print(f"      ✈️ Recommended departure time: {recommended_departure.strftime('%H:%M')}")
         
-        # 10. LLM Agent로 최종 추천
-        print(f"   🤖 LLM 추천 생성 중...")
+        # 10. LLM Agent로 최종 추천 (복원력 강화)
+        print(f"   🤖 Generating LLM recommendation...")
         
         # Transit 경로 정보 텍스트 생성
         transit_route_text = ""
@@ -524,23 +709,42 @@ Please include the following in your response in natural, friendly English:
 
 Please respond in plain text without JSON or markdown formatting."""
         
-        # Ollama API 호출
+        # LLM API 호출 (Gemini 또는 Ollama)
         try:
-            response = requests.post(
-                f"{self.ollama_url}/api/generate",
-                json={
-                    "model": "gpt-oss:120b",
-                    "prompt": prompt,
-                    "stream": False
-                },
-                timeout=60
-            )
-            
-            if response.status_code == 200:
-                result = response.json()
-                recommendation_text = result.get('response', '')
+            if self.use_gemini:
+                # Gemini 사용
+                recommendation_text = self.llm_client.generate_departure_recommendation(
+                    flight_info=flight_info,
+                    travel_details={
+                        'travel_time': travel_time_minutes,
+                        'tsa_wait': tsa_wait_minutes,
+                        'baggage_check': baggage_check_minutes,
+                        'gate_walk': gate_walk_minutes
+                    },
+                    context=context
+                )
             else:
-                recommendation_text = f"""
+                # Ollama 사용
+                response = requests.post(
+                    f"{self.ollama_url}/api/generate",
+                    json={
+                        "model": "gpt-oss:120b",
+                        "prompt": prompt,
+                        "stream": False
+                    },
+                    timeout=60
+                )
+                
+                if response.status_code == 200:
+                    result = response.json()
+                    recommendation_text = result.get('response', '')
+                else:
+                    raise Exception(f"Ollama returned status {response.status_code}")
+        
+        except Exception as e:
+            print(f"   ⚠️ LLM call failed: {e}")
+            # Fallback: 템플릿 기반 추천
+            recommendation_text = f"""
 ✈️ Departure Time Recommendation
 
 Flight {flight_info.get('flight_number', 'N/A')} ({flight_info.get('airline_name', flight_info['airline_code'])})
@@ -558,9 +762,6 @@ Time breakdown:
 
 Weather: {weather['condition']} (delay risk {weather['delay_risk']}, +{weather_delay} min)
 """
-        except Exception as e:
-            print(f"   ⚠️ LLM call failed: {e}")
-            recommendation_text = f"Recommended departure time: {recommended_departure.strftime('%H:%M')}"
         
         return {
             'success': True,
