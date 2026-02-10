@@ -74,6 +74,8 @@ def get_flight_info_from_image():
             print(f"   Flight: {flight_data.get('flight_number', 'N/A')}")
             print(f"   Departure: {flight_data.get('departure_time', 'N/A')}")
             print(f"   Airports: {flight_data.get('departure_airport', 'N/A')} → {flight_data.get('arrival_airport', 'N/A')}")
+            print(f"   Terminal: {flight_data.get('terminal', 'N/A')}")
+            print(f"   Gate: {flight_data.get('gate', 'N/A')}")
             print(f"   Checked baggage: {'Yes' if flight_data.get('has_checked_baggage') else 'No'}")
             print(f"   TSA PreCheck: {'Yes' if flight_data.get('has_tsa_precheck') else 'No'}")
             
@@ -240,6 +242,8 @@ def parse_flight_data(flight_data):
         'origin': flight_data['departure_airport'],
         'dest': flight_data['arrival_airport'],
         'scheduled_time': scheduled_time,
+        'terminal': flight_data.get('terminal'),
+        'gate': flight_data.get('gate'),
         'has_checked_baggage': flight_data['has_checked_baggage'],
         'has_tsa_precheck': flight_data.get('has_tsa_precheck', False)
     }

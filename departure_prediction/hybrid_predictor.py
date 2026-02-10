@@ -173,8 +173,8 @@ class HybridDeparturePredictor:
         # LLM 클라이언트 초기화
         if self.use_gemini:
             print("🤖 Using Google Gemini for LLM")
-            from utils.gemini_client import GeminiClient
-            self.llm_client = GeminiClient(project_id=self.gemini_project_id)
+            from utils.gemini_direct_client import GeminiDirectClient
+            self.llm_client = GeminiDirectClient()
         else:
             print("🤖 Using Ollama for LLM")
             self.ollama_url = os.getenv('OLLAMA_HOST', 'http://127.0.0.1:11434')
@@ -365,7 +365,13 @@ class HybridDeparturePredictor:
         # 실시간 정보가 있고 날짜가 일치하는 경우만 사용
         use_real_time = False
         if real_time_status and real_time_status.get('scheduled_departure') and not real_time_status.get('fallback_used'):
-            api_date = real_time_status['scheduled_departure'].date()
+            # scheduled_departure가 문자열인 경우 datetime으로 변환
+            scheduled_dep = real_time_status['scheduled_departure']
+            if isinstance(scheduled_dep, str):
+                from dateutil import parser
+                scheduled_dep = parser.parse(scheduled_dep)
+            
+            api_date = scheduled_dep.date()
             ticket_date = flight_info['scheduled_time'].date()
             
             # 날짜가 일치하고 지연 정보가 있으면 사용
@@ -374,7 +380,10 @@ class HybridDeparturePredictor:
                 print(f"   ⚠️ Real-time delay info: {real_delay} min")
                 print(f"   📡 Airline announcement: {real_time_status['status_kr']}")
                 if real_time_status.get('estimated_departure'):
-                    print(f"   🕐 Estimated departure: {real_time_status['estimated_departure'].strftime('%H:%M')}")
+                    est_dep = real_time_status['estimated_departure']
+                    if isinstance(est_dep, str):
+                        est_dep = parser.parse(est_dep)
+                    print(f"   🕐 Estimated departure: {est_dep.strftime('%H:%M')}")
                 
                 # 실시간 정보를 우선 사용
                 predicted_delay = real_delay
@@ -537,6 +546,7 @@ class HybridDeparturePredictor:
         
         # 5. TSA 보안검색 대기시간 계산 (캐싱 + 복원력)
         has_tsa_precheck = flight_info.get('has_tsa_precheck', False)
+        terminal = flight_info.get('terminal', None)
         
         def fetch_tsa_wait():
             try:
@@ -545,12 +555,14 @@ class HybridDeparturePredictor:
                     api_func=lambda: get_tsa_wait_time(
                         airport_code=flight_info['origin'],
                         departure_time=flight_info['scheduled_time'],
-                        has_precheck=has_tsa_precheck
+                        has_precheck=has_tsa_precheck,
+                        terminal=terminal
                     ),
                     use_stale_on_error=True,
                     airport=flight_info['origin'],
                     hour=flight_info['scheduled_time'].hour,
-                    precheck=has_tsa_precheck
+                    precheck=has_tsa_precheck,
+                    terminal=terminal or 'unknown'
                 )
             except:
                 # 캐시도 없으면 과거 통계 사용
@@ -712,16 +724,11 @@ Please respond in plain text without JSON or markdown formatting."""
         # LLM API 호출 (Gemini 또는 Ollama)
         try:
             if self.use_gemini:
-                # Gemini 사용
-                recommendation_text = self.llm_client.generate_departure_recommendation(
-                    flight_info=flight_info,
-                    travel_details={
-                        'travel_time': travel_time_minutes,
-                        'tsa_wait': tsa_wait_minutes,
-                        'baggage_check': baggage_check_minutes,
-                        'gate_walk': gate_walk_minutes
-                    },
-                    context=context
+                # Gemini 사용 (Direct API)
+                recommendation_text = self.llm_client.generate_text(
+                    prompt=prompt,
+                    temperature=0.7,
+                    max_tokens=2048
                 )
             else:
                 # Ollama 사용

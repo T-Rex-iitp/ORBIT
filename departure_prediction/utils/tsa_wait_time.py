@@ -89,13 +89,36 @@ class TSAWaitTime:
         except:
             return None
     
-    def get_wait_time(self, airport_code: str, departure_time: datetime) -> Dict:
-        """TSA 대기시간 조회"""
+    def get_wait_time(self, airport_code: str, departure_time: datetime, terminal: Optional[str] = None) -> Dict:
+        """TSA 대기시간 조회
+        
+        Args:
+            airport_code: 공항 코드 (예: JFK)
+            departure_time: 출발 시간
+            terminal: 터미널 번호/이름 (예: "Terminal 5", "5", None)
+        """
         # JFK 실시간 크롤링 시도
         if airport_code == 'JFK' and self.use_live_data:
             live_data = self._crawl_jfk_tsa()
             if live_data:
-                avg_wait = int(sum(live_data.values()) / len(live_data))
+                print(f"   🔍 Live TSA data crawled: {live_data}")
+                # 터미널 정보가 있으면 해당 터미널 대기시간 사용
+                if terminal:
+                    # "Terminal 5" -> "Terminal 5", "5" -> "Terminal 5"
+                    term_key = terminal if "Terminal" in terminal else f"Terminal {terminal}"
+                    
+                    if term_key in live_data:
+                        wait_time = live_data[term_key]
+                        print(f"   ✅ Using {term_key} specific TSA wait time: {wait_time} min")
+                    else:
+                        # 정확한 터미널을 못 찾으면 평균 사용
+                        wait_time = int(sum(live_data.values()) / len(live_data))
+                        print(f"   ⚠️ {term_key} not found in {list(live_data.keys())}, using average: {wait_time} min")
+                else:
+                    # 터미널 정보 없으면 평균
+                    wait_time = int(sum(live_data.values()) / len(live_data))
+                    print(f"   ⚠️ No terminal specified, using average: {wait_time} min")
+                
                 hour = departure_time.hour
                 dow = departure_time.weekday()
                 
@@ -105,14 +128,18 @@ class TSAWaitTime:
                     period = 'normal' if 9 <= hour < 14 else 'off_peak'
                 
                 return {
-                    'wait_time': avg_wait,
+                    'wait_time': wait_time,
                     'period': period,
                     'source': 'real-time_crawl',
+                    'terminal': terminal,
                     'terminals': live_data,
                     'timestamp': datetime.now().isoformat()
                 }
+            else:
+                print(f"   ⚠️ TSA crawling failed, using historical statistics")
         
         # 통계 기반
+        print(f"   📊 Using TSA statistics for {airport_code}")
         stats = TSA_WAIT_TIMES.get(airport_code, TSA_WAIT_TIMES['DEFAULT'])
         hour = departure_time.hour
         dow = departure_time.weekday()
@@ -152,9 +179,9 @@ class TSAWaitTime:
             return True
         return False
     
-    def get_precheck_wait_time(self, airport_code: str, departure_time: datetime) -> Dict:
+    def get_precheck_wait_time(self, airport_code: str, departure_time: datetime, terminal: Optional[str] = None) -> Dict:
         """TSA PreCheck 대기시간 (일반의 35%)"""
-        regular = self.get_wait_time(airport_code, departure_time)
+        regular = self.get_wait_time(airport_code, departure_time, terminal)
         precheck_wait = max(5, int(regular['wait_time'] * 0.35))
         
         return {
@@ -167,14 +194,23 @@ class TSAWaitTime:
 
 
 def get_tsa_wait_time(airport_code: str, departure_time: datetime, 
-                      has_precheck: bool = False, use_live_data: bool = True) -> int:
-    """편의 함수: TSA 대기시간 반환"""
+                      has_precheck: bool = False, use_live_data: bool = True, 
+                      terminal: Optional[str] = None) -> int:
+    """편의 함수: TSA 대기시간 반환
+    
+    Args:
+        airport_code: 공항 코드
+        departure_time: 출발 시간
+        has_precheck: TSA PreCheck 소지 여부
+        use_live_data: 실시간 크롤링 사용 여부
+        terminal: 터미널 번호/이름 (예: "Terminal 5", "5")
+    """
     tsa = TSAWaitTime(use_live_data=use_live_data)
     
     if has_precheck:
-        result = tsa.get_precheck_wait_time(airport_code, departure_time)
+        result = tsa.get_precheck_wait_time(airport_code, departure_time, terminal)
     else:
-        result = tsa.get_wait_time(airport_code, departure_time)
+        result = tsa.get_wait_time(airport_code, departure_time, terminal)
     
     return result['wait_time']
 
