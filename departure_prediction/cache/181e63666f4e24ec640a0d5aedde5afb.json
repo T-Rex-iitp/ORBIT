@@ -1,0 +1,14 @@
+{
+  "timestamp": "2026-02-11T15:02:55.967787",
+  "category": "travel_time",
+  "params": {
+    "origin": "123 Main St, New York, NY",
+    "destination": "JFK",
+    "mode": "DRIVE",
+    "hour": 15
+  },
+  "data": {
+    "success": false,
+    "error": "Google API Key\uac00 \ud544\uc694\ud569\ub2c8\ub2e4. \ud658\uacbd\ubcc0\uc218 GOOGLE_MAPS_API_KEY\ub97c \uc124\uc815\ud558\uac70\ub098 api_key \uc778\uc790\ub97c \uc81c\uacf5\ud558\uc138\uc694."
+  }
+}

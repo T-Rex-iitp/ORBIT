@@ -1,0 +1,11 @@
+{
+  "timestamp": "2026-02-11T15:03:02.215908",
+  "category": "tsa_wait",
+  "params": {
+    "airport": "JFK",
+    "hour": 14,
+    "precheck": false,
+    "terminal": "Terminal 4"
+  },
+  "data": 29
+}

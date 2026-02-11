@@ -24,7 +24,7 @@ from utils.weather_google import get_weather
 from utils.flight_status_checker import check_flight
 from utils.gate_walk_time import get_gate_walk_time
 from utils.operational_factors import OperationalFactorsAnalyzer
-from utils.congestion_check import JFKCongestionChecker, check_jfk_congestion
+from utils.congestion_check import JFKCongestionChecker, check_jfk_congestion, check_jfk_congestion_from_rui
 from utils.resilience import (
     ResilientAPIWrapper,
     get_fallback_travel_time,
@@ -540,8 +540,9 @@ class HybridDeparturePredictor:
                 reference_time=flight_info['scheduled_time']
             )
 
-        # (A) 혼잡도 보정: RUI 우선 → AviationStack API → 과거 데이터 기반 판단
+        # (A) 혼잡도 보정: RUI 파일 → RUI API payload → AviationStack → SBS 직접 연결
         if rui_congestion_data:
+            # RUI에서 API payload로 직접 전달된 경우
             src = rui_congestion_data.get('source', 'RUI')
             print(f"   🛩️ Applying RUI congestion data (source: {src})...")
             if rui_congestion_data.get('details'):
@@ -550,47 +551,67 @@ class HybridDeparturePredictor:
                       f"Mean: {d.get('historical_mean', 'N/A')}, "
                       f"Z-score: {d.get('z_score', 'N/A')}")
             congestion_info = {**congestion_info, **rui_congestion_data}
-        elif self.operational_analyzer.enabled and flight_info['origin'] == 'JFK':
-            print(f"   🛩️ Analyzing JFK-area congestion (AviationStack API)...")
-            try:
-                congestion_info = cached_api_call(
-                    category='operational_congestion',
-                    api_func=lambda: self.operational_analyzer.get_jfk_area_congestion(
-                        flight_info['scheduled_time']
-                    ),
-                    use_stale_on_error=True,
-                    origin=flight_info['origin'],
-                    hour=flight_info['scheduled_time'].hour
-                ) or congestion_info
-            except Exception as e:
-                print(f"   ⚠️ AviationStack congestion analysis failed: {e}")
-                # Fallback: 과거 데이터 기반 혼잡도 (ADS-B tracker 연결 시도)
-                print(f"   🔄 Falling back to historical-based congestion check...")
-                try:
-                    fallback_result = self.jfk_congestion_checker.check_realtime_congestion(
-                        collect_seconds=5
-                    )
-                    if fallback_result.get('details', {}).get('current_count', 0) > 0:
-                        congestion_info = {**congestion_info, **fallback_result}
-                        print(f"      ✅ Historical comparison: {fallback_result['level']} "
-                              f"(count={fallback_result['details']['current_count']})")
-                except Exception as e2:
-                    print(f"   ⚠️ Fallback congestion check also failed: {e2}")
         elif flight_info['origin'] == 'JFK':
-            # API key 없어도 ADS-B tracker가 있으면 과거 데이터 기반 판단 가능
-            print(f"   🛩️ Analyzing JFK congestion via historical data + ADS-B...")
+            # JFK 출발 → RUI 공유 파일 먼저 시도
+            print(f"   🛩️ Checking RUI shared file for JFK flight count...")
             try:
-                fallback_result = self.jfk_congestion_checker.check_realtime_congestion(
-                    collect_seconds=5
+                rui_result = self.jfk_congestion_checker.check_rui_congestion(
+                    max_age_seconds=300,
+                    hour=flight_info['scheduled_time'].hour,
                 )
-                if fallback_result.get('details', {}).get('current_count', 0) > 0:
-                    congestion_info = {**congestion_info, **fallback_result}
-                    print(f"      ✅ Historical comparison: {fallback_result['level']} "
-                          f"(count={fallback_result['details']['current_count']})")
+                if rui_result is not None:
+                    congestion_info = {**congestion_info, **rui_result}
+                    d = rui_result.get('details', {})
+                    print(f"      ✅ RUI data: {rui_result['level']} "
+                          f"(count={d.get('current_count', '?')}, "
+                          f"mean={d.get('historical_mean', '?')}, "
+                          f"z={d.get('z_score', '?')})")
                 else:
-                    print(f"   ℹ️ No ADS-B data available, skipping congestion analysis")
-            except Exception as e:
-                print(f"   ℹ️ Congestion analysis skipped (no API key, no ADS-B): {e}")
+                    raise ValueError("No valid RUI data")
+            except Exception as e_rui:
+                print(f"   ℹ️ RUI file not available: {e_rui}")
+                # Fallback: AviationStack API
+                if self.operational_analyzer.enabled:
+                    print(f"   🛩️ Falling back to AviationStack API...")
+                    try:
+                        congestion_info = cached_api_call(
+                            category='operational_congestion',
+                            api_func=lambda: self.operational_analyzer.get_jfk_area_congestion(
+                                flight_info['scheduled_time']
+                            ),
+                            use_stale_on_error=True,
+                            origin=flight_info['origin'],
+                            hour=flight_info['scheduled_time'].hour
+                        ) or congestion_info
+                    except Exception as e_api:
+                        print(f"   ⚠️ AviationStack also failed: {e_api}")
+                        # Fallback: SBS 직접 연결
+                        print(f"   🔄 Falling back to direct SBS connection...")
+                        try:
+                            fallback_result = self.jfk_congestion_checker.check_realtime_congestion(
+                                collect_seconds=5
+                            )
+                            if fallback_result.get('details', {}).get('current_count', 0) > 0:
+                                congestion_info = {**congestion_info, **fallback_result}
+                                print(f"      ✅ SBS data: {fallback_result['level']} "
+                                      f"(count={fallback_result['details']['current_count']})")
+                        except Exception as e_sbs:
+                            print(f"   ⚠️ SBS connection also failed: {e_sbs}")
+                else:
+                    # No API key → try SBS directly
+                    print(f"   🛩️ Falling back to direct SBS connection...")
+                    try:
+                        fallback_result = self.jfk_congestion_checker.check_realtime_congestion(
+                            collect_seconds=5
+                        )
+                        if fallback_result.get('details', {}).get('current_count', 0) > 0:
+                            congestion_info = {**congestion_info, **fallback_result}
+                            print(f"      ✅ SBS data: {fallback_result['level']} "
+                                  f"(count={fallback_result['details']['current_count']})")
+                        else:
+                            print(f"   ℹ️ No ADS-B data available, skipping congestion analysis")
+                    except Exception as e_sbs:
+                        print(f"   ℹ️ Congestion analysis skipped: {e_sbs}")
         else:
             print("   ℹ️ Congestion analysis skipped (non-JFK origin)")
 
@@ -1033,61 +1054,137 @@ Weather: {weather['condition']} (delay risk {weather['delay_risk']}, +{weather_d
 
 
 def main():
-    """사용 예시"""
-    # 모델 로드
+    """Interactive flight departure prediction."""
+    import sys
+    if sys.platform == 'win32':
+        try:
+            sys.stdout.reconfigure(encoding='utf-8')
+        except Exception:
+            pass
+
+    print("=" * 60)
+    print("  Hybrid Departure Time Predictor")
+    print("=" * 60)
+
+    # ── Collect flight information from user ──
+    print("\nEnter your flight information:\n")
+
+    address = input("  Departure address (e.g. 123 Main St, New York, NY): ").strip()
+    if not address:
+        address = "Times Square, New York, NY"
+        print(f"    → Using default: {address}")
+
+    flight_number = input("  Flight number (e.g. B6123): ").strip().upper()
+    if not flight_number:
+        flight_number = "B6123"
+        print(f"    → Using default: {flight_number}")
+
+    airline_code = input(f"  Airline code (e.g. B6, AA, DL) [{flight_number[:2]}]: ").strip().upper()
+    if not airline_code:
+        # Extract from flight number (first 2 chars)
+        airline_code = ''.join(c for c in flight_number if c.isalpha())[:2]
+        if not airline_code:
+            airline_code = flight_number[:2]
+        print(f"    → Using: {airline_code}")
+
+    origin = input("  Origin airport code [JFK]: ").strip().upper()
+    if not origin:
+        origin = "JFK"
+        print(f"    → Using default: {origin}")
+
+    dest = input("  Destination airport code (e.g. LAX): ").strip().upper()
+    if not dest:
+        dest = "LAX"
+        print(f"    → Using default: {dest}")
+
+    # Departure date/time
+    date_str = input("  Departure date (YYYY-MM-DD) [today]: ").strip()
+    if not date_str:
+        date_str = datetime.now().strftime("%Y-%m-%d")
+        print(f"    → Using today: {date_str}")
+
+    time_str = input("  Departure time (HH:MM, 24h) [14:00]: ").strip()
+    if not time_str:
+        time_str = "14:00"
+        print(f"    → Using default: {time_str}")
+
+    try:
+        scheduled_time = datetime.strptime(f"{date_str} {time_str}", "%Y-%m-%d %H:%M")
+    except ValueError:
+        print(f"  ⚠️ Invalid date/time format. Using today 14:00.")
+        scheduled_time = datetime.now().replace(hour=14, minute=0, second=0, microsecond=0)
+
+    baggage_input = input("  Checked baggage? (y/n) [n]: ").strip().lower()
+    has_checked_baggage = baggage_input in ('y', 'yes')
+
+    precheck_input = input("  TSA PreCheck? (y/n) [n]: ").strip().lower()
+    has_tsa_precheck = precheck_input in ('y', 'yes')
+
+    print("\n  Travel mode options: DRIVE, TRANSIT, WALK, BICYCLE")
+    travel_mode = input("  Travel mode [DRIVE]: ").strip().upper()
+    if travel_mode not in ('DRIVE', 'TRANSIT', 'WALK', 'BICYCLE'):
+        travel_mode = "DRIVE"
+        print(f"    → Using default: {travel_mode}")
+
+    # ── Build flight_info ──
+    flight_info = {
+        'airline_code': airline_code,
+        'flight_number': flight_number,
+        'origin': origin,
+        'dest': dest,
+        'scheduled_time': scheduled_time,
+        'has_checked_baggage': has_checked_baggage,
+        'has_tsa_precheck': has_tsa_precheck,
+    }
+
+    # ── Summary before prediction ──
+    print(f"\n{'='*60}")
+    print(f"  Flight: {flight_number} ({airline_code})")
+    print(f"  Route:  {origin} → {dest}")
+    print(f"  Date:   {scheduled_time.strftime('%Y-%m-%d %H:%M')}")
+    print(f"  From:   {address}")
+    print(f"  Mode:   {travel_mode}")
+    print(f"  Baggage: {'Yes' if has_checked_baggage else 'No'}")
+    print(f"  TSA PreCheck: {'Yes' if has_tsa_precheck else 'No'}")
+    print(f"{'='*60}")
+
+    # ── Load model & predict ──
+    print("\nLoading model...")
     predictor = HybridDeparturePredictor('models/delay_predictor_full.pkl')
-    
-    # 테스트 케이스
-    test_cases = [
-        {
-            'address': '123 Main St, New York, NY',
-            'flight_info': {
-                'airline_code': 'B6',
-                'airline_name': 'JetBlue Airways',
-                'flight_number': 'B6123',
-                'origin': 'JFK',
-                'dest': 'LAX',
-                'scheduled_time': datetime(2026, 2, 5, 14, 30),
-                'has_checked_baggage': True,
-                'has_tsa_precheck': False
-            },
-            'travel_mode': 'DRIVE'
-        },
-        {
-            'address': 'Times Square, New York, NY',
-            'flight_info': {
-                'airline_code': 'AA',
-                'airline_name': 'American Airlines',
-                'flight_number': 'AA100',
-                'origin': 'JFK',
-                'dest': 'MIA',
-                'scheduled_time': datetime(2026, 2, 5, 18, 0),
-                'has_checked_baggage': False,
-                'has_tsa_precheck': True
-            },
-            'travel_mode': 'TRANSIT'
-        }
-    ]
-    
-    for i, test in enumerate(test_cases, 1):
+
+    result = predictor.recommend_departure(
+        address=address,
+        flight_info=flight_info,
+        travel_mode=travel_mode,
+    )
+
+    if result['success']:
         print(f"\n{'='*60}")
-        print(f"테스트 케이스 {i}")
+        print(f"  RECOMMENDATION")
         print(f"{'='*60}")
-        
-        result = predictor.recommend_departure(
-            address=test['address'],
-            flight_info=test['flight_info'],
-            travel_mode=test['travel_mode']
-        )
-        
-        if result['success']:
-            print(f"\n✅ 추천 결과:")
-            print(f"   출발 주소: {test['address']}")
-            print(f"   항공편: {test['flight_info']['flight_number']}")
-            print(f"   예정 출발: {test['flight_info']['scheduled_time'].strftime('%Y-%m-%d %H:%M')}")
-            print(f"\n{result['recommendation']}")
-        else:
-            print(f"\n❌ 오류: {result['error']}")
+        print(f"\n{result['recommendation']}")
+
+        details = result.get('details', {})
+        print(f"\n{'='*60}")
+        print(f"  DETAILS")
+        print(f"{'='*60}")
+        print(f"  Recommended departure : {details.get('recommended_departure', 'N/A')}")
+        print(f"  Scheduled flight time : {details.get('flight_time', 'N/A')}")
+        print(f"  Actual expected dept  : {details.get('actual_departure', 'N/A')}")
+        print(f"  Predicted delay       : {details.get('predicted_delay', 0):.0f} min")
+        print(f"  Congestion level      : {details.get('congestion_level', 'N/A')} "
+              f"(source: {details.get('congestion_source', 'N/A')})")
+        cong_details = details.get('congestion_details', {})
+        if cong_details.get('current_count') is not None:
+            print(f"    Flight count: {cong_details.get('current_count')}, "
+                  f"Mean: {cong_details.get('historical_mean', 'N/A')}, "
+                  f"Z-score: {cong_details.get('z_score', 'N/A')}")
+        print(f"  Operational delay     : +{details.get('operational_delay', 0)} min")
+        print(f"  Travel time           : {details.get('travel_time', 0)} min")
+        print(f"  TSA wait              : {details.get('tsa_wait', 0)} min")
+        print(f"  Total time needed     : {details.get('total_time', 0)} min")
+    else:
+        print(f"\n❌ Error: {result['error']}")
 
 
 if __name__ == '__main__':

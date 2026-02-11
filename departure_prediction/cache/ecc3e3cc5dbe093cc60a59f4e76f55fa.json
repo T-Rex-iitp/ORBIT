@@ -1,0 +1,20 @@
+{
+  "timestamp": "2026-02-11T15:02:55.967787",
+  "category": "fr24_adsb_delay",
+  "params": {
+    "flight_number": "B6123",
+    "date": "2026-02-05"
+  },
+  "data": {
+    "delay_minutes": 0,
+    "found": false,
+    "in_air": false,
+    "source": "error",
+    "reason": "missing_fr24_token",
+    "adsb_tracked": false,
+    "validation_mismatch": false,
+    "validation_notes": [],
+    "current_flight": {},
+    "previous_flight": {}
+  }
+}

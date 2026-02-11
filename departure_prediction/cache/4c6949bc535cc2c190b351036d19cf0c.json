@@ -1,0 +1,23 @@
+{
+  "timestamp": "2026-02-11T15:02:47.966209",
+  "category": "flight_status",
+  "params": {
+    "flight_number": "B6123",
+    "date": "2026-02-05"
+  },
+  "data": {
+    "flight_number": "B6123",
+    "airline": "Sample Airlines",
+    "status": "scheduled",
+    "status_kr": "\uc815\uc0c1 \uc608\uc815",
+    "scheduled_departure": "2026-02-11 18:02:47.966209",
+    "estimated_departure": "2026-02-11 18:02:47.966209",
+    "actual_departure": null,
+    "delay_minutes": 0,
+    "is_delayed": false,
+    "gate": "TBA",
+    "terminal": "TBA",
+    "origin": "JFK",
+    "destination": "LAX"
+  }
+}
