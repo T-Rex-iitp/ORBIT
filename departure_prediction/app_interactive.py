@@ -319,6 +319,12 @@ def main():
             print(f"   - TSA wait: {details['tsa_wait']} min")
             print(f"   - Baggage check-in: {details['baggage_check']} min")
             print(f"   - Predicted delay: {details['predicted_delay']:.0f} min")
+            if 'operational_delay' in details:
+                print(
+                    f"   - Operational adjustment: +{details['operational_delay']} min "
+                    f"(congestion: {details.get('congestion_level', 'unknown')}, "
+                    f"previous leg: {details.get('previous_leg_delay', 0)} min)"
+                )
             print(f"   - Total time: {details['total_time']} min")
         else:
             print(f"\n❌ Error: {result.get('error', 'Unknown error')}")

@@ -13,7 +13,11 @@ AI 기반 항공편 출발 시간 추천 시스템. Transformer 모델, 실시�
    - FT-Transformer 모델로 AI 예측 (60,000+ 항공편 학습)
    - Google Weather API로 날씨 영향 분석
 
-3. **통합 소요시간 계산**
+3. **운항 컨텍스트 기반 지연 보정 (신규)**
+   - JFK 50-mile 권역 혼잡도 분석 (JFK/LGA/EWR 등 주변 공항 지연률 샘플링)
+   - 이전 비행(직전 레그) 지연 전이 반영
+
+4. **통합 소요시간 계산**
    - Google Routes API (교통 정보, 대중교통 상세 경로)
    - TSA 보안 검색 대기시간 (시간대별 통계)
    - 수하물 체크인 시간 (30분 vs 기내반입 0분)
@@ -33,6 +37,10 @@ Gemini Vision OCR / 직접 입력
 실시간 항공편 상태 확인 (AviationStack API)
     ├─ 지연 정보 있음 → 항공사 공식 발표 사용
     └─ 정보 없음 → FT-Transformer AI 예측
+    ↓
+운항 컨텍스트 보정
+    ├─ JFK 50-mile 권역 혼잡도
+    └─ 직전 비행 지연 전이
     ↓
 날씨 API (Google Weather) → 추가 지연 (+0/15/30분)
     ↓
