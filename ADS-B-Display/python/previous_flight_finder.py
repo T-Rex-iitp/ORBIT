@@ -62,7 +62,14 @@ def _load_env(env_path: Path = _ENV_PATH) -> dict[str, str]:
         if "=" not in line:
             continue
         key, _, value = line.partition("=")
-        env[key.strip()] = value.strip()
+        key = key.strip()
+        value = value.strip()
+        if len(value) >= 2 and (
+            (value[0] == value[-1] == '"') or
+            (value[0] == value[-1] == "'")
+        ):
+            value = value[1:-1]
+        env[key] = value
     return env
 
 
