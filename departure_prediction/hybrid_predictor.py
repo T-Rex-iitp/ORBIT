@@ -9,6 +9,7 @@ Architecture:
 5. LLM Agent: 최종 출발 시간 추천 (한국어)
 """
 
+import io
 import pickle
 import torch
 import torch.nn as nn
@@ -261,6 +262,18 @@ class HybridDeparturePredictor:
             'propagated_delay': propagated_delay,
             'source': 'RUI'
         }
+
+    def _load_pickle_with_device_map(self, file_obj):
+        """CPU/GPU 환경 차이와 무관하게 torch storage를 안전하게 역직렬화."""
+        device = self.device
+
+        class DeviceAwareUnpickler(pickle.Unpickler):
+            def find_class(self, module, name):
+                if module == 'torch.storage' and name == '_load_from_bytes':
+                    return lambda b: torch.load(io.BytesIO(b), map_location=device)
+                return super().find_class(module, name)
+
+        return DeviceAwareUnpickler(file_obj).load()
         
     def load_model(self, model_path):
         """학습된 모델 로드 (로컬 또는 GCS)"""
@@ -278,7 +291,7 @@ class HybridDeparturePredictor:
             # 로컬에서 로드
             print(f"📦 모델 로딩: {model_path}")
             with open(model_path, 'rb') as f:
-                package = pickle.load(f)
+                package = self._load_pickle_with_device_map(f)
         
         # 모델 재생성 (FT-Transformer)
         config = package['model_config']
