@@ -24,6 +24,7 @@ from utils.weather_google import get_weather
 from utils.flight_status_checker import check_flight
 from utils.gate_walk_time import get_gate_walk_time
 from utils.operational_factors import OperationalFactorsAnalyzer
+from utils.congestion_check import JFKCongestionChecker, check_jfk_congestion
 from utils.resilience import (
     ResilientAPIWrapper,
     get_fallback_travel_time,
@@ -197,11 +198,38 @@ class HybridDeparturePredictor:
         # 운항 컨텍스트(혼잡도) 분석기
         self.operational_analyzer = OperationalFactorsAnalyzer()
 
-    def _normalize_rui_congestion(self, congestion_payload):
-        """RUI congestion use case 응답을 내부 congestion_info 포맷으로 변환."""
+        # JFK 과거 데이터 기반 혼잡도 판단기
+        self.jfk_congestion_checker = JFKCongestionChecker()
+
+    def _normalize_rui_congestion(self, congestion_payload, reference_time=None):
+        """RUI congestion use case 응답을 내부 congestion_info 포맷으로 변환.
+
+        두 가지 방식을 지원:
+          (A) RUI가 이미 level/score/extra_delay를 계산해서 보낸 경우 → 그대로 사용
+          (B) RUI가 flight_count만 보낸 경우 → JFKCongestionChecker로 판단
+        """
         if not isinstance(congestion_payload, dict):
             return None
 
+        # ── (B) flight_count만 전달된 경우: 과거 데이터 대비 혼잡도 판단 ──
+        raw_count = congestion_payload.get('flight_count')
+        if raw_count is not None:
+            try:
+                raw_count = int(raw_count)
+            except (TypeError, ValueError):
+                raw_count = None
+
+        if raw_count is not None:
+            hour = congestion_payload.get('hour')
+            result = self.jfk_congestion_checker.check_congestion(
+                current_flight_count=raw_count,
+                hour=hour,
+                reference_time=reference_time,
+            )
+            result['source'] = 'RUI_historical_comparison'
+            return result
+
+        # ── (A) 기존 방식: 이미 계산된 congestion 결과 전달 ──
         level = congestion_payload.get('level') or congestion_payload.get('congestion_level') or 'unknown'
 
         try:
@@ -508,15 +536,22 @@ class HybridDeparturePredictor:
 
         if isinstance(rui_usecase_data, dict):
             rui_congestion_data = self._normalize_rui_congestion(
-                rui_usecase_data.get('congestion_check')
+                rui_usecase_data.get('congestion_check'),
+                reference_time=flight_info['scheduled_time']
             )
 
-        # (A) 혼잡도 보정: RUI 우선, 없으면 JFK only API
+        # (A) 혼잡도 보정: RUI 우선 → AviationStack API → 과거 데이터 기반 판단
         if rui_congestion_data:
-            print("   🛩️ Applying RUI congestion use case data...")
+            src = rui_congestion_data.get('source', 'RUI')
+            print(f"   🛩️ Applying RUI congestion data (source: {src})...")
+            if rui_congestion_data.get('details'):
+                d = rui_congestion_data['details']
+                print(f"      Flight count: {d.get('current_count', 'N/A')}, "
+                      f"Mean: {d.get('historical_mean', 'N/A')}, "
+                      f"Z-score: {d.get('z_score', 'N/A')}")
             congestion_info = {**congestion_info, **rui_congestion_data}
         elif self.operational_analyzer.enabled and flight_info['origin'] == 'JFK':
-            print(f"   🛩️ Analyzing JFK-area congestion...")
+            print(f"   🛩️ Analyzing JFK-area congestion (AviationStack API)...")
             try:
                 congestion_info = cached_api_call(
                     category='operational_congestion',
@@ -528,9 +563,36 @@ class HybridDeparturePredictor:
                     hour=flight_info['scheduled_time'].hour
                 ) or congestion_info
             except Exception as e:
-                print(f"   ⚠️ Operational congestion analysis failed: {e}")
+                print(f"   ⚠️ AviationStack congestion analysis failed: {e}")
+                # Fallback: 과거 데이터 기반 혼잡도 (ADS-B tracker 연결 시도)
+                print(f"   🔄 Falling back to historical-based congestion check...")
+                try:
+                    fallback_result = self.jfk_congestion_checker.check_realtime_congestion(
+                        collect_seconds=5
+                    )
+                    if fallback_result.get('details', {}).get('current_count', 0) > 0:
+                        congestion_info = {**congestion_info, **fallback_result}
+                        print(f"      ✅ Historical comparison: {fallback_result['level']} "
+                              f"(count={fallback_result['details']['current_count']})")
+                except Exception as e2:
+                    print(f"   ⚠️ Fallback congestion check also failed: {e2}")
+        elif flight_info['origin'] == 'JFK':
+            # API key 없어도 ADS-B tracker가 있으면 과거 데이터 기반 판단 가능
+            print(f"   🛩️ Analyzing JFK congestion via historical data + ADS-B...")
+            try:
+                fallback_result = self.jfk_congestion_checker.check_realtime_congestion(
+                    collect_seconds=5
+                )
+                if fallback_result.get('details', {}).get('current_count', 0) > 0:
+                    congestion_info = {**congestion_info, **fallback_result}
+                    print(f"      ✅ Historical comparison: {fallback_result['level']} "
+                          f"(count={fallback_result['details']['current_count']})")
+                else:
+                    print(f"   ℹ️ No ADS-B data available, skipping congestion analysis")
+            except Exception as e:
+                print(f"   ℹ️ Congestion analysis skipped (no API key, no ADS-B): {e}")
         else:
-            print("   ℹ️ Congestion analysis skipped (non-JFK origin or no API key)")
+            print("   ℹ️ Congestion analysis skipped (non-JFK origin)")
 
         # (B) ADS-B + FR24 기반 직전편 지연 보정 (항상 시도, 실패 시 0)
         if estimate_previous_leg_delay_minutes is not None and flight_info.get('flight_number'):
@@ -558,9 +620,18 @@ class HybridDeparturePredictor:
         adsb_fr24_delay = int(adsb_fr24_info.get('delay_minutes', 0) or 0)
         operational_delay = congestion_delay + adsb_fr24_delay
 
+        congestion_detail = congestion_info.get('details', {})
+        detail_str = ""
+        if congestion_detail.get('z_score') is not None:
+            detail_str = (
+                f", z={congestion_detail['z_score']:.2f}, "
+                f"count={congestion_detail.get('current_count', '?')}/"
+                f"mean={congestion_detail.get('historical_mean', '?')}"
+            )
         print(
             f"      • Area congestion: {congestion_info.get('level', 'unknown')} "
-            f"(score {congestion_info.get('score', 0):.2f}, n={congestion_info.get('sample_size', 0)}) "
+            f"(score {congestion_info.get('score', 0):.2f}, n={congestion_info.get('sample_size', 0)}"
+            f"{detail_str}) "
             f"→ +{congestion_delay} min"
         )
         print(
@@ -849,7 +920,8 @@ Flight Information:
 - Scheduled Departure: {flight_info['scheduled_time'].strftime('%Y-%m-%d %H:%M')}
 {delay_source_text}
 - Operational factors (congestion + FR24/ADS-B previous-leg): +{operational_delay} minutes
-  • Area congestion: {congestion_info.get('level', 'unknown')} (score {congestion_info.get('score', 0):.2f}, sample={congestion_info.get('sample_size', 0)})
+  • Area congestion: {congestion_info.get('level', 'unknown')} (score {congestion_info.get('score', 0):.2f}, sample={congestion_info.get('sample_size', 0)}, source={congestion_info.get('source', 'unknown')})
+  {f"  (flight count: {congestion_detail.get('current_count', 'N/A')}, historical mean: {congestion_detail.get('historical_mean', 'N/A')}, z-score: {congestion_detail.get('z_score', 'N/A')})" if congestion_detail.get('z_score') is not None else ""}
   • FR24+ADS-B previous leg delay: +{adsb_fr24_info.get('delay_minutes', 0)} minutes
 - Weather-related delay: {weather_delay} minutes
 - Total expected delay: {total_predicted_delay:.0f} minutes
@@ -948,6 +1020,9 @@ Weather: {weather['condition']} (delay risk {weather['delay_risk']}, +{weather_d
                 'predicted_delay': predicted_delay,
                 'operational_delay': operational_delay,
                 'congestion_level': congestion_info.get('level', 'unknown'),
+                'congestion_score': congestion_info.get('score', 0.0),
+                'congestion_source': congestion_info.get('source', 'unknown'),
+                'congestion_details': congestion_info.get('details', {}),
                 'adsb_fr24_delay': adsb_fr24_info.get('delay_minutes', 0),
                 'adsb_fr24_source': adsb_fr24_info.get('source', 'none'),
                 'adsb_fr24_reason': adsb_fr24_info.get('reason', 'unknown'),

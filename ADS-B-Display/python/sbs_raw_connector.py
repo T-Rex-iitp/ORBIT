@@ -44,13 +44,19 @@ from typing import Callable, Optional, TextIO
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def _adsb_char(code: int) -> str:
-    """Convert a 6-bit ADS-B character code to ASCII (ICAO Annex 10 charset)."""
+    """Convert a 6-bit ADS-B character code to ASCII (ICAO Annex 10 charset).
+
+    Standard mapping (RTCA DO-260B Table 2-75):
+      0x01-0x1A (1-26)  → A-Z
+      0x20       (32)   → space
+      0x30-0x39 (48-57) → 0-9
+    """
     if 1 <= code <= 26:
         return chr(ord("A") + code - 1)
     if code == 32:
         return " "
-    if 33 <= code <= 42:
-        return chr(ord("0") + code - 33)
+    if 48 <= code <= 57:
+        return chr(ord("0") + code - 48)
     return ""
 
 

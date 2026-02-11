@@ -16,3 +16,5 @@ ADS-B-Display/.DS_Store
 ADS-B-Display/GoogleMap/0210/.DS_Store
 ADS-B-Display/GoogleMap/0310/.DS_Store
 .DS_Store
+ADS-B-Display/python/__pycache__/sbs_raw_connector.cpython-312.pyc
+ADS-B-Display/python/__pycache__/sbs_raw_connector.cpython-310.pyc
