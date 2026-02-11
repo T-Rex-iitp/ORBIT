@@ -183,6 +183,84 @@ class HybridDeparturePredictor:
 
         # 운항 컨텍스트(혼잡도/직전편 지연) 분석기
         self.operational_analyzer = OperationalFactorsAnalyzer()
+
+    def _normalize_rui_congestion(self, congestion_payload):
+        """RUI congestion use case 응답을 내부 congestion_info 포맷으로 변환."""
+        if not isinstance(congestion_payload, dict):
+            return None
+
+        level = congestion_payload.get('level') or congestion_payload.get('congestion_level') or 'unknown'
+
+        try:
+            score = float(congestion_payload.get('score', 0.0) or 0.0)
+        except (TypeError, ValueError):
+            score = 0.0
+
+        try:
+            sample_size = int(congestion_payload.get('sample_size', 0) or 0)
+        except (TypeError, ValueError):
+            sample_size = 0
+
+        recommended_extra_delay = congestion_payload.get('recommended_extra_delay')
+        if recommended_extra_delay is None:
+            recommended_extra_delay = congestion_payload.get('extra_delay_minutes')
+        if recommended_extra_delay is None:
+            recommended_extra_delay = congestion_payload.get('delay_minutes')
+
+        try:
+            recommended_extra_delay = int(recommended_extra_delay or 0)
+        except (TypeError, ValueError):
+            recommended_extra_delay = 0
+
+        return {
+            'level': level,
+            'score': score,
+            'sample_size': sample_size,
+            'recommended_extra_delay': recommended_extra_delay,
+            'source': 'RUI'
+        }
+
+    def _normalize_rui_previous_flight(self, previous_payload):
+        """RUI previous-flight use case 응답을 내부 previous_leg_info 포맷으로 변환."""
+        if not isinstance(previous_payload, dict):
+            return None
+
+        found = previous_payload.get('found')
+        if found is None:
+            found = previous_payload.get('has_previous_flight')
+        if found is None:
+            found = previous_payload.get('available')
+        found = bool(found)
+
+        delay_minutes = previous_payload.get('delay_minutes')
+        if delay_minutes is None:
+            delay_minutes = previous_payload.get('previous_delay_minutes')
+        if delay_minutes is None:
+            delay_minutes = previous_payload.get('previous_flight_delay')
+        try:
+            delay_minutes = int(delay_minutes or 0)
+        except (TypeError, ValueError):
+            delay_minutes = 0
+
+        propagated_delay = previous_payload.get('propagated_delay')
+        if propagated_delay is None:
+            propagated_delay = previous_payload.get('propagated_delay_minutes')
+
+        # propagated 정보가 없으면 기존 로직과 동일하게 50% 전이(최대 30분)
+        if propagated_delay is None:
+            propagated_delay = max(0, min(int(delay_minutes * 0.5), 30))
+        else:
+            try:
+                propagated_delay = int(propagated_delay or 0)
+            except (TypeError, ValueError):
+                propagated_delay = 0
+
+        return {
+            'found': found,
+            'delay_minutes': delay_minutes,
+            'propagated_delay': propagated_delay,
+            'source': 'RUI'
+        }
         
     def load_model(self, model_path):
         """학습된 모델 로드 (로컬 또는 GCS)"""
@@ -304,7 +382,7 @@ class HybridDeparturePredictor:
         
         return float(predicted_delay)
     
-    def recommend_departure(self, address, flight_info, travel_mode='DRIVE'):
+    def recommend_departure(self, address, flight_info, travel_mode='DRIVE', rui_usecase_data=None):
         """
         하이브리드 시스템으로 출발 시간 추천 (복원력 강화)
         
@@ -319,6 +397,9 @@ class HybridDeparturePredictor:
                 - has_checked_baggage: 수하물 체크인 여부 (optional, default=False)
                 - has_tsa_precheck: TSA PreCheck 보유 여부 (optional, default=False)
             travel_mode: 이동 수단 ('DRIVE', 'TRANSIT', 'WALK', 'BICYCLE')
+            rui_usecase_data: RUI에서 전달한 운항 use case 데이터(optional)
+                - congestion_check: 혼잡도 분석 결과 dict
+                - previous_flight_check: 직전 비행 분석 결과 dict
         
         Returns:
             recommendation: LLM 추천 결과 (dict)
@@ -434,7 +515,47 @@ class HybridDeparturePredictor:
             'propagated_delay': 0
         }
 
-        if self.operational_analyzer.enabled and flight_info['origin'] == 'JFK':
+        rui_congestion_data = None
+        rui_previous_data = None
+        if rui_usecase_data is None and isinstance(flight_info, dict):
+            # RUI 연동 시 flight_info 내부에 use case 결과를 함께 담아 전달할 수 있음
+            rui_usecase_data = flight_info.get('rui_usecase_data')
+
+        if isinstance(rui_usecase_data, dict):
+            rui_congestion_data = self._normalize_rui_congestion(
+                rui_usecase_data.get('congestion_check')
+            )
+            rui_previous_data = self._normalize_rui_previous_flight(
+                rui_usecase_data.get('previous_flight_check')
+            )
+
+        if rui_congestion_data or rui_previous_data:
+            print("   🛩️ Applying RUI operational use case data (congestion + previous flight)...")
+            if rui_congestion_data:
+                congestion_info = {**congestion_info, **rui_congestion_data}
+            if rui_previous_data:
+                previous_leg_info = {**previous_leg_info, **rui_previous_data}
+
+            congestion_delay = int(congestion_info.get('recommended_extra_delay', 0) or 0)
+            previous_leg_delay = int(previous_leg_info.get('propagated_delay', 0) or 0)
+            operational_delay = congestion_delay + previous_leg_delay
+
+            print(
+                f"      • Area congestion (RUI): {congestion_info.get('level', 'unknown')} "
+                f"(score {congestion_info.get('score', 0):.2f}, n={congestion_info.get('sample_size', 0)}) "
+                f"→ +{congestion_delay} min"
+            )
+            if previous_leg_info.get('found'):
+                print(
+                    f"      • Previous leg delay (RUI): {previous_leg_info.get('delay_minutes', 0)} min "
+                    f"(propagated +{previous_leg_delay} min)"
+                )
+            else:
+                print("      • Previous leg delay (RUI): unavailable (0 min applied)")
+
+            if operational_delay > 0:
+                print(f"      ⚠️ Operational adjustment applied: +{operational_delay} min")
+        elif self.operational_analyzer.enabled and flight_info['origin'] == 'JFK':
             print(f"   🛩️ Analyzing JFK-area congestion and previous leg delay...")
 
             def fetch_congestion():

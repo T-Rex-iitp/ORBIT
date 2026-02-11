@@ -213,11 +213,26 @@ flight_info = {
 result = predictor.recommend_departure(
     address='450 W 42nd St, New York, NY 10036',
     flight_info=flight_info,
-    travel_mode='TRANSIT'
+    travel_mode='TRANSIT',
+    rui_usecase_data={
+        'congestion_check': {
+            'congestion_level': 'medium',
+            'score': 0.48,
+            'sample_size': 28,
+            'extra_delay_minutes': 10
+        },
+        'previous_flight_check': {
+            'found': True,
+            'previous_delay_minutes': 22,
+            'propagated_delay_minutes': 11
+        }
+    }
 )
 
 print(result['recommendation'])
 ```
+
+> `rui_usecase_data`를 전달하지 않으면 기존처럼 AviationStack 기반 혼잡도/직전편 분석 로직을 사용합니다.
 
 ## 📊 모델 학습 (선택사항)
 
