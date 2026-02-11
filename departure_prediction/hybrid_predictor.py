@@ -20,6 +20,7 @@ from utils.tsa_wait_time import get_tsa_wait_time
 from utils.weather_google import get_weather
 from utils.flight_status_checker import check_flight
 from utils.gate_walk_time import get_gate_walk_time
+from utils.operational_factors import OperationalFactorsAnalyzer
 from utils.resilience import (
     ResilientAPIWrapper,
     get_fallback_travel_time,
@@ -179,6 +180,9 @@ class HybridDeparturePredictor:
             print("🤖 Using Ollama for LLM")
             self.ollama_url = os.getenv('OLLAMA_HOST', 'http://127.0.0.1:11434')
             self.llm_client = None
+
+        # 운항 컨텍스트(혼잡도/직전편 지연) 분석기
+        self.operational_analyzer = OperationalFactorsAnalyzer()
         
     def load_model(self, model_path):
         """학습된 모델 로드 (로컬 또는 GCS)"""
@@ -416,10 +420,80 @@ class HybridDeparturePredictor:
             
             use_real_time = False
         
-        # 3. 실제 출발 시간 계산 (scheduled + 예상지연)
+        # 3. 운항 컨텍스트 반영 (JFK 50마일 혼잡도 + 직전편 지연)
+        operational_delay = 0
+        congestion_info = {
+            'level': 'unknown',
+            'score': 0.0,
+            'sample_size': 0,
+            'recommended_extra_delay': 0
+        }
+        previous_leg_info = {
+            'found': False,
+            'delay_minutes': 0,
+            'propagated_delay': 0
+        }
+
+        if self.operational_analyzer.enabled and flight_info['origin'] == 'JFK':
+            print(f"   🛩️ Analyzing JFK-area congestion and previous leg delay...")
+
+            def fetch_congestion():
+                return cached_api_call(
+                    category='operational_congestion',
+                    api_func=lambda: self.operational_analyzer.get_jfk_area_congestion(
+                        flight_info['scheduled_time']
+                    ),
+                    use_stale_on_error=True,
+                    origin=flight_info['origin'],
+                    hour=flight_info['scheduled_time'].hour
+                )
+
+            def fetch_previous_leg():
+                return cached_api_call(
+                    category='previous_leg_delay',
+                    api_func=lambda: self.operational_analyzer.get_previous_leg_delay(
+                        flight_info['flight_number'],
+                        flight_info['scheduled_time']
+                    ),
+                    use_stale_on_error=True,
+                    flight_number=flight_info['flight_number'],
+                    date=flight_info['scheduled_time'].date().isoformat()
+                )
+
+            try:
+                congestion_info = fetch_congestion() or congestion_info
+                previous_leg_info = fetch_previous_leg() or previous_leg_info
+
+                congestion_delay = int(congestion_info.get('recommended_extra_delay', 0) or 0)
+                previous_leg_delay = int(previous_leg_info.get('propagated_delay', 0) or 0)
+                operational_delay = congestion_delay + previous_leg_delay
+
+                print(
+                    f"      • Area congestion: {congestion_info.get('level', 'unknown')} "
+                    f"(score {congestion_info.get('score', 0):.2f}, n={congestion_info.get('sample_size', 0)}) "
+                    f"→ +{congestion_delay} min"
+                )
+                if previous_leg_info.get('found'):
+                    print(
+                        f"      • Previous leg delay: {previous_leg_info.get('delay_minutes', 0)} min "
+                        f"(propagated +{previous_leg_delay} min)"
+                    )
+                else:
+                    print("      • Previous leg delay: unavailable (0 min applied)")
+
+                if operational_delay > 0:
+                    print(f"      ⚠️ Operational adjustment applied: +{operational_delay} min")
+            except Exception as e:
+                print(f"   ⚠️ Operational factor analysis failed: {e}")
+        else:
+            print("   ℹ️ Operational factor analysis skipped (non-JFK origin or no API key)")
+
+        predicted_delay += operational_delay
+
+        # 4. 실제 출발 시간 계산 (scheduled + 예상지연)
         actual_departure = flight_info['scheduled_time'] + timedelta(minutes=predicted_delay)
         
-        # 4. 날씨 정보 조회 (캐싱 + 복원력)
+        # 5. 날씨 정보 조회 (캐싱 + 복원력)
         print(f"   🌤️ Fetching weather information...")
         
         def fetch_weather():
@@ -485,7 +559,7 @@ class HybridDeparturePredictor:
                 estimated_departure = now
                 print(f"   ⚠️ 비행기가 이미 출발했거나 임박했습니다.")
         
-        # 4. Google Routes API로 이동 시간 계산 (캐싱 + 복원력)
+        # 5. Google Routes API로 이동 시간 계산 (캐싱 + 복원력)
         print(f"   🗺️ Calculating travel time... ({travel_mode})")
         
         def fetch_travel_time():
@@ -544,7 +618,7 @@ class HybridDeparturePredictor:
                 }.get(detail['vehicle_type'], '🚌')
                 print(f"      {i}. {vehicle_icon} {detail['line']} - {detail['from']} → {detail['to']} ({detail['stops']} stops)")
         
-        # 5. TSA 보안검색 대기시간 계산 (캐싱 + 복원력)
+        # 6. TSA 보안검색 대기시간 계산 (캐싱 + 복원력)
         has_tsa_precheck = flight_info.get('has_tsa_precheck', False)
         terminal = flight_info.get('terminal', None)
         
@@ -590,7 +664,7 @@ class HybridDeparturePredictor:
         
         print(f"   🔒 TSA wait: {tsa_wait_minutes} min {'(PreCheck)' if has_tsa_precheck else ''}")
         
-        # 6. 수하물 체크인 시간 계산
+        # 7. 수하물 체크인 시간 계산
         has_checked_baggage = flight_info.get('has_checked_baggage', False)
         baggage_check_minutes = 30 if has_checked_baggage else 0
         if has_checked_baggage:
@@ -598,7 +672,7 @@ class HybridDeparturePredictor:
         else:
             print(f"   🎒 Carry-on only (no check-in required)")
         
-        # 7. 게이트 이동 시간 (터미널/게이트 정보 기반)
+        # 8. 게이트 이동 시간 (터미널/게이트 정보 기반)
         terminal = flight_info.get('terminal', 'Terminal 4')  # 기본값: Terminal 4 (국제선)
         gate = flight_info.get('gate', None)
         
@@ -610,10 +684,10 @@ class HybridDeparturePredictor:
         
         print(f"   🚶 Gate walk: {gate_walk_minutes} min ({terminal}, Gate {gate if gate else 'N/A'})")
         
-        # 8. 총 소요 시간 계산
+        # 9. 총 소요 시간 계산
         total_time = travel_time_minutes + tsa_wait_minutes + baggage_check_minutes + gate_walk_minutes
         
-        # 9. 추천 출발 시간 = 공항 도착 목표 - 총 소요 시간
+        # 10. 추천 출발 시간 = 공항 도착 목표 - 총 소요 시간
         recommended_departure = airport_arrival_target - timedelta(minutes=total_time)
         
         print(f"\n   ✅ Calculation complete:")
@@ -630,7 +704,7 @@ class HybridDeparturePredictor:
         print(f"")
         print(f"      ✈️ Recommended departure time: {recommended_departure.strftime('%H:%M')}")
         
-        # 10. LLM Agent로 최종 추천 (복원력 강화)
+        # 11. LLM Agent로 최종 추천 (복원력 강화)
         print(f"   🤖 Generating LLM recommendation...")
         
         # Transit 경로 정보 텍스트 생성
@@ -687,6 +761,9 @@ Flight Information:
 - Departure Airport: {flight_info['origin']}
 - Scheduled Departure: {flight_info['scheduled_time'].strftime('%Y-%m-%d %H:%M')}
 {delay_source_text}
+- Operational factors (JFK 50-mile congestion + previous-leg propagation): +{operational_delay} minutes
+  • Area congestion: {congestion_info.get('level', 'unknown')} (score {congestion_info.get('score', 0):.2f}, sample={congestion_info.get('sample_size', 0)})
+  • Previous leg propagated delay: +{previous_leg_info.get('propagated_delay', 0)} minutes
 - Weather-related delay: {weather_delay} minutes
 - Total expected delay: {total_predicted_delay:.0f} minutes
 - Actual expected departure: {actual_departure.strftime('%Y-%m-%d %H:%M')}
@@ -767,6 +844,7 @@ Time breakdown:
 - Gate walk: {gate_walk_minutes} min
 - Total: {total_time} min
 
+Operational factors: +{operational_delay} min (congestion {congestion_info.get('level', 'unknown')}, previous leg +{previous_leg_info.get('propagated_delay', 0)} min)
 Weather: {weather['condition']} (delay risk {weather['delay_risk']}, +{weather_delay} min)
 """
         
@@ -781,6 +859,9 @@ Weather: {weather['condition']} (delay risk {weather['delay_risk']}, +{weather_d
                 'tsa_wait': tsa_wait_minutes,
                 'baggage_check': baggage_check_minutes,
                 'predicted_delay': predicted_delay,
+                'operational_delay': operational_delay,
+                'congestion_level': congestion_info.get('level', 'unknown'),
+                'previous_leg_delay': previous_leg_info.get('delay_minutes', 0),
                 'total_time': total_time
             }
         }
