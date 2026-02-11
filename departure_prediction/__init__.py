@@ -1,4 +1,5 @@
-# Departure Prediction 모듈
+"""
+Departure Prediction 모듈
 
 출발 시간 예측 시스템을 Python 패키지로 사용할 수 있도록 합니다.
 
@@ -29,3 +30,4 @@ api = DeparturePredictionAPI(
 )
 prediction = api.predict(historical_data)
 ```
+"""

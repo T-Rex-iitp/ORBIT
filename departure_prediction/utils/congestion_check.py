@@ -206,41 +206,83 @@ class JFKCongestionChecker:
         }
 
     # ──────────────────────────────────────
-    # 실시간 flight count 수신 (RUI 연동)
+    # 거리 계산 (Haversine) - C++ RUI와 동일
     # ──────────────────────────────────────
-    def get_realtime_count_from_tracker(
-        self,
-        host: str = "127.0.0.1",
-        port: int = 30003,
-        collect_seconds: int = 10,
-    ) -> int:
+    @staticmethod
+    def _haversine_miles(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
         """
-        ADS-B tracker(SBS feed)에 접속하여 일정 시간 동안 고유 ICAO 수를 세어
-        실시간 flight count를 반환한다.
+        두 좌표 사이의 거리를 statute miles로 계산 (Haversine 공식).
+        C++ RUI의 CalculateDistanceMiles()와 동일한 로직.
+        """
+        EARTH_RADIUS_MILES = 3958.8
 
-        이 방법은 RUI가 직접 count를 전달하지 못할 때 대안으로 사용.
-        RUI에서 직접 count를 받는 것이 더 정확하고 권장됨.
+        lat1_r = math.radians(lat1)
+        lon1_r = math.radians(lon1)
+        lat2_r = math.radians(lat2)
+        lon2_r = math.radians(lon2)
+
+        d_lat = lat2_r - lat1_r
+        d_lon = lon2_r - lon1_r
+
+        a = (math.sin(d_lat / 2) ** 2 +
+             math.cos(lat1_r) * math.cos(lat2_r) *
+             math.sin(d_lon / 2) ** 2)
+        c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
+
+        return EARTH_RADIUS_MILES * c
+
+    # ──────────────────────────────────────
+    # SBS 피드에서 실시간 flight count 수신
+    # (RUI의 SBS Connect와 동일한 방식)
+    # ──────────────────────────────────────
+    def get_realtime_count_from_sbs(
+        self,
+        host: str = "128.237.96.41",
+        port: int = 5002,
+        collect_seconds: int = 30,
+        center_lat: float = 40.6413,
+        center_lon: float = -73.7781,
+        radius_miles: float = 50.0,
+    ) -> Tuple[int, int, Dict]:
+        """
+        SBS BaseStation 피드에 접속하여 JFK 반경 내 항공기 수를 실시간 집계.
+
+        RUI의 JFK 버튼 → CountFlightsInRadius()와 동일한 로직을 Python으로 구현.
+        SBS 피드 포트는 5002 (C++ RUI의 IdTCPClientSBS->Port=5002와 동일).
+
+        SBS 메시지 포맷:
+          MSG,type,sessionID,aircraftID,hexIdent,flightID,
+          dateGen,timeGen,dateLog,timeLog,
+          callsign,altitude,groundSpeed,track,lat,lon,
+          verticalRate,squawk,...
 
         Args:
-            host: SBS feed 호스트 (기본 localhost)
-            port: SBS feed 포트 (기본 30003 = SBS BaseStation)
-            collect_seconds: 수집 시간(초). 길수록 정확하나 대기 시간 증가.
+            host: SBS 피드 서버 주소 (기본: 128.237.96.41)
+            port: SBS 피드 포트 (기본: 5002, RUI와 동일)
+            collect_seconds: 수집 시간(초). 충분한 위치 데이터를 받으려면 15-30초 권장.
+            center_lat: 중심 위도 (기본: JFK 40.6413)
+            center_lon: 중심 경도 (기본: JFK -73.7781)
+            radius_miles: 반경 (기본: 50 마일, RUI JFK 버튼과 동일)
 
         Returns:
-            고유 항공기 수 (flight count)
+            (jfk_count, total_count, aircraft_info) 튜플:
+              - jfk_count: JFK 반경 내 항공기 수
+              - total_count: 전체 고유 항공기 수
+              - aircraft_info: 각 항공기의 상세 정보 dict
         """
-        icao_set: set = set()
+        # 항공기별 최신 위치/정보 저장
+        aircraft: Dict[str, Dict] = {}
 
         try:
             sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            sock.settimeout(collect_seconds + 5)
+            sock.settimeout(collect_seconds + 10)
             sock.connect((host, port))
 
             buf = ""
             start = time.time()
             while time.time() - start < collect_seconds:
                 try:
-                    data = sock.recv(4096).decode("ascii", errors="ignore")
+                    data = sock.recv(4096).decode("utf-8", errors="replace")
                 except socket.timeout:
                     break
                 if not data:
@@ -249,45 +291,259 @@ class JFKCongestionChecker:
                 while "\n" in buf:
                     line, buf = buf.split("\n", 1)
                     parts = line.strip().split(",")
-                    # SBS format: MSG,type,...,hex_ident,...
-                    if len(parts) >= 5 and parts[0] == "MSG":
-                        hex_ident = parts[4].strip()
-                        if hex_ident:
-                            icao_set.add(hex_ident)
+
+                    # SBS format: MSG,type,...,hexIdent(4),...,
+                    #   callsign(10),alt(11),gs(12),track(13),lat(14),lon(15),...
+                    if len(parts) < 11 or parts[0] != "MSG":
+                        continue
+
+                    hex_ident = parts[4].strip()
+                    if not hex_ident:
+                        continue
+
+                    # 항공기 엔트리 생성/업데이트
+                    if hex_ident not in aircraft:
+                        aircraft[hex_ident] = {
+                            "icao": hex_ident,
+                            "callsign": "",
+                            "lat": None,
+                            "lon": None,
+                            "altitude": None,
+                            "ground_speed": None,
+                        }
+
+                    ac = aircraft[hex_ident]
+
+                    # 콜사인 (필드 10)
+                    if len(parts) > 10 and parts[10].strip():
+                        ac["callsign"] = parts[10].strip()
+
+                    # 고도 (필드 11)
+                    if len(parts) > 11 and parts[11].strip():
+                        try:
+                            ac["altitude"] = int(float(parts[11].strip()))
+                        except ValueError:
+                            pass
+
+                    # 속도 (필드 12)
+                    if len(parts) > 12 and parts[12].strip():
+                        try:
+                            ac["ground_speed"] = float(parts[12].strip())
+                        except ValueError:
+                            pass
+
+                    # 위도/경도 (필드 14, 15) - 핵심: JFK 거리 계산에 필요
+                    if len(parts) > 15:
+                        lat_s = parts[14].strip()
+                        lon_s = parts[15].strip()
+                        if lat_s and lon_s:
+                            try:
+                                ac["lat"] = float(lat_s)
+                                ac["lon"] = float(lon_s)
+                            except ValueError:
+                                pass
 
         except (socket.error, OSError) as e:
-            print(f"   ⚠️ ADS-B tracker 연결 실패 ({host}:{port}): {e}")
+            print(f"   [WARNING] SBS feed connection failed ({host}:{port}): {e}")
         finally:
             try:
                 sock.close()
             except Exception:
                 pass
 
-        return len(icao_set)
+        # JFK 반경 내 항공기 카운트 (RUI의 CountFlightsInRadius와 동일)
+        jfk_count = 0
+        for ac in aircraft.values():
+            if ac["lat"] is not None and ac["lon"] is not None:
+                dist = self._haversine_miles(
+                    center_lat, center_lon, ac["lat"], ac["lon"]
+                )
+                ac["distance_miles"] = round(dist, 1)
+                if dist <= radius_miles:
+                    ac["within_jfk_radius"] = True
+                    jfk_count += 1
+                else:
+                    ac["within_jfk_radius"] = False
+
+        return jfk_count, len(aircraft), aircraft
 
     # ──────────────────────────────────────
-    # 통합: 실시간 수집 + 혼잡도 판단
+    # 기존 호환: 단순 ICAO 카운트 방식
+    # ──────────────────────────────────────
+    def get_realtime_count_from_tracker(
+        self,
+        host: str = "128.237.96.41",
+        port: int = 5002,
+        collect_seconds: int = 30,
+    ) -> int:
+        """
+        SBS 피드에 접속하여 JFK 50마일 반경 내 항공기 수를 반환.
+        (RUI JFK 버튼과 동일한 결과)
+
+        Args:
+            host: SBS 피드 호스트 (기본: 128.237.96.41)
+            port: SBS 피드 포트 (기본: 5002)
+            collect_seconds: 수집 시간(초)
+
+        Returns:
+            JFK 반경 50마일 내 항공기 수
+        """
+        jfk_count, total_count, _ = self.get_realtime_count_from_sbs(
+            host=host, port=port, collect_seconds=collect_seconds
+        )
+        return jfk_count
+
+    # ──────────────────────────────────────
+    # 통합: SBS 실시간 수집 + 혼잡도 판단
     # ──────────────────────────────────────
     def check_realtime_congestion(
         self,
-        host: str = "127.0.0.1",
-        port: int = 30003,
-        collect_seconds: int = 10,
+        host: str = "128.237.96.41",
+        port: int = 5002,
+        collect_seconds: int = 30,
         hour: Optional[int] = None,
+        radius_miles: float = 50.0,
     ) -> Dict:
         """
-        ADS-B tracker에 직접 접속하여 실시간 flight count를 수집한 뒤
-        혼잡도를 판단한다.
+        SBS 피드에서 실시간 JFK 반경 내 항공기 수를 집계하고 혼잡도를 판단.
 
-        RUI에서 count를 직접 전달하지 못할 때 사용.
+        RUI의 SBS Connect (128.237.96.41:5002) → JFK 버튼과 동일한 동작을
+        Python에서 자동으로 수행한다.
+
+        Args:
+            host: SBS 피드 호스트 (기본: 128.237.96.41)
+            port: SBS 피드 포트 (기본: 5002)
+            collect_seconds: 수집 시간(초). 30초 권장.
+            hour: 비교 대상 시간대 (0-23). None이면 현재 시각.
+            radius_miles: JFK 중심 반경 (기본: 50마일)
 
         Returns:
-            check_congestion()과 동일한 형식의 dict
+            check_congestion()과 동일한 형식의 dict + SBS 상세 정보 추가
         """
-        print(f"   📡 ADS-B tracker ({host}:{port})에서 {collect_seconds}초간 수집 중...")
-        count = self.get_realtime_count_from_tracker(host, port, collect_seconds)
-        print(f"   📊 수집된 항공기 수: {count}")
-        return self.check_congestion(count, hour=hour)
+        print(f"   [SBS] Connecting to {host}:{port} ...")
+        print(f"   [SBS] Collecting data for {collect_seconds} seconds ...")
+
+        jfk_count, total_count, aircraft = self.get_realtime_count_from_sbs(
+            host=host, port=port, collect_seconds=collect_seconds,
+            radius_miles=radius_miles,
+        )
+
+        print(f"   [SBS] Total unique aircraft: {total_count}")
+        print(f"   [SBS] Aircraft within {radius_miles}mi of JFK: {jfk_count}")
+
+        result = self.check_congestion(jfk_count, hour=hour)
+
+        # SBS 실시간 상세 정보 추가
+        result["source"] = "sbs_realtime"
+        result["details"]["total_aircraft"] = total_count
+        result["details"]["jfk_radius_miles"] = radius_miles
+        result["details"]["sbs_host"] = host
+        result["details"]["sbs_port"] = port
+        result["details"]["collect_seconds"] = collect_seconds
+
+        return result
+
+    # ──────────────────────────────────────
+    # RUI에서 JFK 카운트 읽기 (공유 파일)
+    # ──────────────────────────────────────
+    @staticmethod
+    def get_count_from_rui(
+        file_path: Optional[str] = None,
+        max_age_seconds: float = 300,
+    ) -> Optional[Dict]:
+        """
+        RUI가 JFK 버튼 클릭 시 기록한 공유 파일에서 flight count를 읽는다.
+
+        RUI (C++ ADS-B Display)는 JFK 버튼을 누르면
+        departure_prediction/data/jfk_realtime_count.json 에 아래 형식으로 기록:
+        {
+            "flight_count": 87,
+            "airport": "JFK",
+            "radius_miles": 50.0,
+            "latitude": 40.6413,
+            "longitude": -73.7781,
+            "timestamp": "2026-02-11 14:30:00",
+            "source": "RUI"
+        }
+
+        Args:
+            file_path: JSON 파일 경로. None이면 기본 경로 사용.
+            max_age_seconds: 데이터 유효 시간(초). 기본 300초(5분).
+                             이보다 오래된 데이터는 None 반환.
+
+        Returns:
+            파일의 JSON 내용을 dict로 반환. 파일이 없거나 유효 기간 초과 시 None.
+        """
+        if file_path is None:
+            data_dir = Path(__file__).resolve().parent.parent / "data"
+            file_path = str(data_dir / "jfk_realtime_count.json")
+
+        if not os.path.isfile(file_path):
+            return None
+
+        try:
+            with open(file_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+
+            # 유효 기간 확인
+            if "timestamp" in data and max_age_seconds > 0:
+                ts = datetime.strptime(data["timestamp"], "%Y-%m-%d %H:%M:%S")
+                age = (datetime.now() - ts).total_seconds()
+                if age > max_age_seconds:
+                    print(f"   [RUI] Data is {age:.0f}s old (max {max_age_seconds}s). Stale.")
+                    return None
+
+            return data
+
+        except (json.JSONDecodeError, KeyError, ValueError, OSError) as e:
+            print(f"   [RUI] Error reading file: {e}")
+            return None
+
+    def check_rui_congestion(
+        self,
+        file_path: Optional[str] = None,
+        max_age_seconds: float = 300,
+        hour: Optional[int] = None,
+    ) -> Optional[Dict]:
+        """
+        RUI의 JFK 버튼 결과(공유 파일)에서 flight count를 읽어 혼잡도를 판단.
+
+        사용 흐름:
+          1. RUI에서 SBS Connect (128.237.96.41:5002)
+          2. RUI에서 JFK 버튼 클릭 → 파일에 count 기록
+          3. 이 함수 호출 → 파일에서 count 읽어 혼잡도 분석
+
+        Args:
+            file_path: 공유 JSON 파일 경로. None이면 기본 경로.
+            max_age_seconds: 데이터 유효 시간(초). 기본 300초(5분).
+            hour: 비교 대상 시간대 (0-23). None이면 현재 시각.
+
+        Returns:
+            congestion_info dict. 파일이 없거나 데이터가 오래되면 None.
+        """
+        rui_data = self.get_count_from_rui(
+            file_path=file_path, max_age_seconds=max_age_seconds
+        )
+        if rui_data is None:
+            print("   [RUI] No valid data from RUI.")
+            print("   [RUI] Make sure RUI is running, SBS connected, and JFK button clicked.")
+            return None
+
+        count = rui_data.get("flight_count", 0)
+        radius = rui_data.get("radius_miles", 50.0)
+        timestamp = rui_data.get("timestamp", "")
+
+        print(f"   [RUI] Got flight count from RUI: {count}")
+        print(f"   [RUI] Radius: {radius} miles | Timestamp: {timestamp}")
+
+        result = self.check_congestion(count, hour=hour)
+
+        # RUI 소스 정보 추가
+        result["source"] = "rui"
+        result["details"]["rui_timestamp"] = timestamp
+        result["details"]["jfk_radius_miles"] = radius
+
+        return result
 
     # ──────────────────────────────────────
     # 시간대별 통계 요약 (디버깅/확인용)
@@ -355,11 +611,49 @@ def check_jfk_congestion(
     )
 
 
+def check_jfk_congestion_from_rui(
+    hour: Optional[int] = None,
+    max_age_seconds: float = 300,
+) -> Optional[Dict]:
+    """
+    RUI의 JFK 버튼 결과에서 flight count를 읽어 혼잡도를 판단.
+
+    사용 흐름:
+      1. RUI에서 SBS Connect → JFK 버튼 클릭
+      2. 이 함수 호출 → 파일에서 최신 count 읽어 혼잡도 분석
+
+    Args:
+        hour: 비교 대상 시간대 (0-23). None이면 현재 시각.
+        max_age_seconds: 데이터 유효 시간(초). 기본 300초(5분).
+
+    Returns:
+        congestion_info dict. RUI 데이터가 없으면 None.
+
+    Example:
+        >>> from utils.congestion_check import check_jfk_congestion_from_rui
+        >>> result = check_jfk_congestion_from_rui()
+        >>> if result:
+        ...     print(result['level'], result['details']['current_count'])
+    """
+    checker = get_checker()
+    return checker.check_rui_congestion(
+        max_age_seconds=max_age_seconds, hour=hour,
+    )
+
+
 # ──────────────────────────────────────────────
 # CLI 테스트
 # ──────────────────────────────────────────────
 if __name__ == "__main__":
     import argparse
+    import sys
+    
+    # Fix Windows console encoding
+    if sys.platform == 'win32':
+        try:
+            sys.stdout.reconfigure(encoding='utf-8')
+        except:
+            pass
 
     parser = argparse.ArgumentParser(description="JFK 공역 혼잡도 판단")
     parser.add_argument(
@@ -375,16 +669,28 @@ if __name__ == "__main__":
         help="과거 flight count CSV 파일 경로"
     )
     parser.add_argument(
-        "--host", type=str, default="127.0.0.1",
-        help="ADS-B tracker 호스트 (기본: 127.0.0.1)"
+        "--host", type=str, default="128.237.96.41",
+        help="SBS 피드 호스트 (기본: 128.237.96.41)"
     )
     parser.add_argument(
-        "--port", type=int, default=30003,
-        help="ADS-B tracker 포트 (기본: 30003)"
+        "--port", type=int, default=5002,
+        help="SBS 피드 포트 (기본: 5002, RUI와 동일)"
     )
     parser.add_argument(
-        "--collect", type=int, default=10,
-        help="ADS-B 수집 시간(초) (기본: 10)"
+        "--collect", type=int, default=3,
+        help="SBS 수집 시간(초) (기본: 3)"
+    )
+    parser.add_argument(
+        "--radius", type=float, default=50.0,
+        help="JFK 중심 반경 마일 (기본: 50.0, RUI와 동일)"
+    )
+    parser.add_argument(
+        "--from-rui", action="store_true",
+        help="RUI JFK 버튼 결과(공유 파일)에서 flight count 읽기"
+    )
+    parser.add_argument(
+        "--max-age", type=float, default=300,
+        help="RUI 데이터 유효 시간(초) (기본: 300 = 5분)"
     )
     parser.add_argument(
         "--summary", action="store_true",
@@ -402,11 +708,25 @@ if __name__ == "__main__":
     if args.count is not None:
         # 직접 count 전달
         result = checker.check_congestion(args.count, hour=args.hour)
+    elif args.from_rui:
+        # RUI JFK 버튼 결과에서 읽기
+        result = checker.check_rui_congestion(
+            max_age_seconds=args.max_age, hour=args.hour
+        )
+        if result is None:
+            print("\n[ERROR] No valid data from RUI. Exiting.")
+            print("Steps to use --from-rui:")
+            print("  1. Open ADS-B Display (RUI)")
+            print("  2. Click 'SBS Connect' (connects to 128.237.96.41:5002)")
+            print("  3. Click 'JFK' button")
+            print("  4. Run this script with --from-rui")
+            sys.exit(1)
     else:
-        # ADS-B tracker에서 실시간 수집
+        # SBS 피드에서 실시간 수집 (RUI SBS Connect와 동일)
         result = checker.check_realtime_congestion(
             host=args.host, port=args.port,
-            collect_seconds=args.collect, hour=args.hour
+            collect_seconds=args.collect, hour=args.hour,
+            radius_miles=args.radius,
         )
 
     print(f"\n=== JFK 공역 혼잡도 결과 ===")

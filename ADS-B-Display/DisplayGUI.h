@@ -301,16 +301,16 @@ __published:	// IDE-managed Components
           Variant StreamPosition, SpeechRecognitionType RecognitionType,
           ISpeechRecoResult *Result);
 	void __fastcall LIstenClick(TObject *Sender);
-	void __fastcall ProcessVoiceCommand(AnsiString command);
-	void __fastcall ProcessPreviousFlightQuery(AnsiString flightNo);
-	bool __fastcall HookByCallsign(AnsiString callsign);
-	AnsiString ExtractFlightNumber(AnsiString text);
-	void __fastcall CenterMapOnHookedAircraft(void);
 
 private:	// User declarations
 
 
 public:		// User declarations
+	void __fastcall ProcessVoiceCommand(AnsiString command);
+	void __fastcall ProcessPreviousFlightQuery(AnsiString flightNo);
+	bool __fastcall HookByCallsign(AnsiString callsign);
+	AnsiString __fastcall ExtractFlightNumber(AnsiString text);
+	void __fastcall CenterMapOnHookedAircraft(void);
 	__fastcall TForm1(TComponent* Owner);
 	__fastcall ~TForm1();
 	void __fastcall LatLon2XY(double lat,double lon, double &x, double &y);
@@ -322,6 +322,7 @@ public:		// User declarations
 	int __fastcall CountFlightsInArea(TArea *Area);
 	void __fastcall UpdateAreaFlightCounts(void);
 	int __fastcall CountFlightsInRadius(double centerLat, double centerLon, double radiusMiles);
+	void __fastcall WriteJFKFlightCount(int count, double radius);
 	double __fastcall CalculateDistanceMiles(double lat1, double lon1, double lat2, double lon2);
 	void __fastcall SendCotMessage(AnsiString IP_address, unsigned short Port,char *Buffer,DWORD Length);
 	void __fastcall RegisterWithCoTRouter(void);

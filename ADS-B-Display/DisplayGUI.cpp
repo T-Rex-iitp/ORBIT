@@ -990,6 +990,8 @@ void __fastcall TForm1::UpdateAreaFlightCounts(void)
       {
         Item->SubItems->Strings[0] = IntToStr(airportCount);
       }
+      // Update shared file for Python congestion_check.py
+      WriteJFKFlightCount(airportCount, AirportRadiusMiles);
     }
   }
 }
@@ -1041,6 +1043,44 @@ int __fastcall TForm1::CountFlightsInRadius(double centerLat, double centerLon, 
   return count;
 }
 //---------------------------------------------------------------------------
+// Write JFK flight count to shared file for Python congestion_check.py
+void __fastcall TForm1::WriteJFKFlightCount(int count, double radius)
+{
+  try
+  {
+    AnsiString HomeDir = ExtractFilePath(ExtractFileDir(Application->ExeName));
+    AnsiString FilePath = HomeDir + AnsiString("..\\..\\departure_prediction\\data\\jfk_realtime_count.json");
+
+    // Get current timestamp
+    AnsiString Timestamp = FormatDateTime("yyyy-mm-dd hh:nn:ss", Now());
+
+    // Write JSON (use snprintf for locale-safe floating point)
+    char buf[512];
+    snprintf(buf, sizeof(buf),
+      "{\n"
+      "  \"flight_count\": %d,\n"
+      "  \"airport\": \"JFK\",\n"
+      "  \"radius_miles\": %.1f,\n"
+      "  \"latitude\": 40.6413,\n"
+      "  \"longitude\": -73.7781,\n"
+      "  \"timestamp\": \"%s\",\n"
+      "  \"source\": \"RUI\"\n"
+      "}",
+      count, radius, Timestamp.c_str());
+
+    TStringList *Lines = new TStringList();
+    Lines->Text = AnsiString(buf);
+    Lines->SaveToFile(FilePath);
+    delete Lines;
+
+    printf("JFK count written to file: %d flights (%.0f mi radius)\n", count, radius);
+  }
+  catch (...)
+  {
+    printf("Warning: Could not write JFK flight count file\n");
+  }
+}
+//---------------------------------------------------------------------------
 // JFK Button Click - Add JFK airport to tracking
 void __fastcall TForm1::JFKButtonClick(TObject *Sender)
 {
@@ -1059,6 +1099,8 @@ void __fastcall TForm1::JFKButtonClick(TObject *Sender)
     {
       AirportListItem->SubItems->Strings[0] = IntToStr(count);
     }
+    // Write count to shared file for Python
+    WriteJFKFlightCount(count, RADIUS_MILES);
     return;
   }
   
@@ -1080,6 +1122,9 @@ void __fastcall TForm1::JFKButtonClick(TObject *Sender)
   AirportListItem->SubItems->Add(IntToStr(count));  // Count column
   AirportListItem->SubItems->Add("");               // Color column (empty for airport)
   AreaListView->Items->EndUpdate();
+  
+  // Write count to shared file for Python
+  WriteJFKFlightCount(count, RADIUS_MILES);
   
   printf("JFK Airport tracking enabled: %d flights within %.0f miles\n", count, RADIUS_MILES);
 }
@@ -2732,7 +2777,7 @@ void __fastcall TForm1::ProcessVoiceCommand(AnsiString command)
 // Extract flight number from voice command text
 // Supports patterns like: "KE937", "KAL123", "AAL456", "UAL789", etc.
 //---------------------------------------------------------------------------
-AnsiString TForm1::ExtractFlightNumber(AnsiString text)
+AnsiString __fastcall TForm1::ExtractFlightNumber(AnsiString text)
 {
 	AnsiString result = "";
 	text = text.UpperCase();
