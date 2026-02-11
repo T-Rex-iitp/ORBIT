@@ -76,7 +76,7 @@ def previous_leg_from_reg(api_token: str, reg: str, cutoff_utc: str, lookback_da
 
 def get_flight_history(api_token: str, reg: str, cutoff_utc: str, max_legs: int = 5, lookback_days: int = 3) -> List[Dict[str, Any]]:
     """
-    Get multiple previous flights for a registration to build route history.
+    Get multiple previous flights for a registration (all legs, no status filter).
     
     Args:
         api_token: FlightRadar24 API token
@@ -86,7 +86,7 @@ def get_flight_history(api_token: str, reg: str, cutoff_utc: str, max_legs: int 
         lookback_days: How many days to look back
     
     Returns:
-        List of flight dictionaries, most recent first
+        List of flight dictionaries, most recent first (includes in-flight legs)
     """
     cutoff = _parse_utc(cutoff_utc)
     rows = fr24_get(api_token, "/flight-summary/light", {
@@ -96,16 +96,23 @@ def get_flight_history(api_token: str, reg: str, cutoff_utc: str, max_legs: int 
         "sort": "desc",
     })
     
-    # Filter to completed flights and limit to max_legs
-    completed = []
-    for r in rows:
-        ended = (r.get("datetime_landed") is not None) or (str(r.get("flight_ended")).lower() == "true")
-        if ended:
-            completed.append(r)
-            if len(completed) >= max_legs:
-                break
+    return rows[:max_legs]
+
+
+def is_flight_in_air(flight: Dict[str, Any]) -> bool:
+    """Determine whether a flight leg is currently in the air.
     
-    return completed
+    Returns True  if the aircraft is still airborne (no landing time, not ended).
+    Returns False if the aircraft has landed or the flight has ended.
+    """
+    if flight.get("datetime_landed") is not None:
+        return False
+    if str(flight.get("flight_ended", "")).lower() == "true":
+        return False
+    # Has a takeoff time but no landing → in the air
+    if flight.get("datetime_takeoff") is not None or flight.get("first_seen") is not None:
+        return True
+    return False
 
 
 def build_route_chain(flights: List[Dict[str, Any]]) -> str:
@@ -170,7 +177,8 @@ def icao_to_iata(icao_code: str) -> str:
 
 def get_previous_flight(api_token: str, flight_no: str, max_history: int = 5) -> Dict[str, Any]:
     """
-    Get the previous flight for a given flight number, including route history.
+    Get the previous flight for a given flight number, including route history
+    and flight status (in-air vs landed).
     
     Args:
         api_token: FlightRadar24 API token
@@ -178,7 +186,7 @@ def get_previous_flight(api_token: str, flight_no: str, max_history: int = 5) ->
         max_history: Maximum number of previous legs to include in history
     
     Returns:
-        Dictionary with current flight, previous flight info, and route history
+        Dictionary with current flight, previous flight info (with status), and route history
     """
     mine = get_latest_leg_by_flightno_now(api_token, flight_no)
     
@@ -186,11 +194,14 @@ def get_previous_flight(api_token: str, flight_no: str, max_history: int = 5) ->
     if not cutoff:
         raise RuntimeError("Could not get first_seen/datetime_takeoff from current flight")
     
-    # Get flight history (multiple previous legs)
+    # Get flight history (all legs, no ended filter)
     history = get_flight_history(api_token, reg=mine["reg"], cutoff_utc=cutoff, max_legs=max_history)
     
     # Get the immediate previous flight
     prev = history[0] if history else None
+    
+    # Determine previous flight status
+    prev_in_air = is_flight_in_air(prev) if prev else False
     
     # Build route chain from history
     route_chain = build_route_chain(history) if history else ""
@@ -209,6 +220,11 @@ def get_previous_flight(api_token: str, flight_no: str, max_history: int = 5) ->
             "registration": prev.get("reg") if prev else None,
             "origin": icao_to_iata(prev.get("orig_icao")) if prev else None,
             "destination": icao_to_iata(prev.get("dest_icao")) if prev else None,
+            "orig_icao": prev.get("orig_icao") if prev else None,
+            "dest_icao": prev.get("dest_icao") if prev else None,
+            "in_air": prev_in_air,
+            "datetime_takeoff": prev.get("datetime_takeoff") if prev else None,
+            "datetime_landed": prev.get("datetime_landed") if prev else None,
         } if prev else None,
         "route_history": route_chain,
         "history_count": len(history)

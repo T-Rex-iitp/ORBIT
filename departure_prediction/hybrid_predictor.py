@@ -16,6 +16,8 @@ import torch.nn as nn
 import numpy as np
 import pandas as pd
 from datetime import datetime, timedelta
+from pathlib import Path
+import sys
 from utils.google_routes import calculate_travel_time
 from utils.tsa_wait_time import get_tsa_wait_time
 from utils.weather_google import get_weather
@@ -39,6 +41,16 @@ from utils.cache import (
 import requests
 import json
 import os
+
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent
+_ADSB_PY_DIR = _PROJECT_ROOT / "ADS-B-Display" / "python"
+if str(_ADSB_PY_DIR) not in sys.path:
+    sys.path.insert(0, str(_ADSB_PY_DIR))
+
+try:
+    from previous_flight_finder import estimate_previous_leg_delay_minutes
+except Exception:
+    estimate_previous_leg_delay_minutes = None
 
 
 class FeatureTokenizer(nn.Module):
@@ -182,7 +194,7 @@ class HybridDeparturePredictor:
             self.ollama_url = os.getenv('OLLAMA_HOST', 'http://127.0.0.1:11434')
             self.llm_client = None
 
-        # 운항 컨텍스트(혼잡도/직전편 지연) 분석기
+        # 운항 컨텍스트(혼잡도) 분석기
         self.operational_analyzer = OperationalFactorsAnalyzer()
 
     def _normalize_rui_congestion(self, congestion_payload):
@@ -218,48 +230,6 @@ class HybridDeparturePredictor:
             'score': score,
             'sample_size': sample_size,
             'recommended_extra_delay': recommended_extra_delay,
-            'source': 'RUI'
-        }
-
-    def _normalize_rui_previous_flight(self, previous_payload):
-        """RUI previous-flight use case 응답을 내부 previous_leg_info 포맷으로 변환."""
-        if not isinstance(previous_payload, dict):
-            return None
-
-        found = previous_payload.get('found')
-        if found is None:
-            found = previous_payload.get('has_previous_flight')
-        if found is None:
-            found = previous_payload.get('available')
-        found = bool(found)
-
-        delay_minutes = previous_payload.get('delay_minutes')
-        if delay_minutes is None:
-            delay_minutes = previous_payload.get('previous_delay_minutes')
-        if delay_minutes is None:
-            delay_minutes = previous_payload.get('previous_flight_delay')
-        try:
-            delay_minutes = int(delay_minutes or 0)
-        except (TypeError, ValueError):
-            delay_minutes = 0
-
-        propagated_delay = previous_payload.get('propagated_delay')
-        if propagated_delay is None:
-            propagated_delay = previous_payload.get('propagated_delay_minutes')
-
-        # propagated 정보가 없으면 기존 로직과 동일하게 50% 전이(최대 30분)
-        if propagated_delay is None:
-            propagated_delay = max(0, min(int(delay_minutes * 0.5), 30))
-        else:
-            try:
-                propagated_delay = int(propagated_delay or 0)
-            except (TypeError, ValueError):
-                propagated_delay = 0
-
-        return {
-            'found': found,
-            'delay_minutes': delay_minutes,
-            'propagated_delay': propagated_delay,
             'source': 'RUI'
         }
 
@@ -412,7 +382,6 @@ class HybridDeparturePredictor:
             travel_mode: 이동 수단 ('DRIVE', 'TRANSIT', 'WALK', 'BICYCLE')
             rui_usecase_data: RUI에서 전달한 운항 use case 데이터(optional)
                 - congestion_check: 혼잡도 분석 결과 dict
-                - previous_flight_check: 직전 비행 분석 결과 dict
         
         Returns:
             recommendation: LLM 추천 결과 (dict)
@@ -514,7 +483,7 @@ class HybridDeparturePredictor:
             
             use_real_time = False
         
-        # 3. 운항 컨텍스트 반영 (JFK 50마일 혼잡도 + 직전편 지연)
+        # 3. 운항 컨텍스트 반영 (혼잡도 + ADS-B/FR24 직전편 지연)
         operational_delay = 0
         congestion_info = {
             'level': 'unknown',
@@ -522,14 +491,17 @@ class HybridDeparturePredictor:
             'sample_size': 0,
             'recommended_extra_delay': 0
         }
-        previous_leg_info = {
+        adsb_fr24_info = {
             'found': False,
+            'in_air': False,
             'delay_minutes': 0,
-            'propagated_delay': 0
+            'source': 'none',
+            'reason': 'not_started',
+            'validation_mismatch': False,
+            'validation_notes': []
         }
 
         rui_congestion_data = None
-        rui_previous_data = None
         if rui_usecase_data is None and isinstance(flight_info, dict):
             # RUI 연동 시 flight_info 내부에 use case 결과를 함께 담아 전달할 수 있음
             rui_usecase_data = flight_info.get('rui_usecase_data')
@@ -538,41 +510,15 @@ class HybridDeparturePredictor:
             rui_congestion_data = self._normalize_rui_congestion(
                 rui_usecase_data.get('congestion_check')
             )
-            rui_previous_data = self._normalize_rui_previous_flight(
-                rui_usecase_data.get('previous_flight_check')
-            )
 
-        if rui_congestion_data or rui_previous_data:
-            print("   🛩️ Applying RUI operational use case data (congestion + previous flight)...")
-            if rui_congestion_data:
-                congestion_info = {**congestion_info, **rui_congestion_data}
-            if rui_previous_data:
-                previous_leg_info = {**previous_leg_info, **rui_previous_data}
-
-            congestion_delay = int(congestion_info.get('recommended_extra_delay', 0) or 0)
-            previous_leg_delay = int(previous_leg_info.get('propagated_delay', 0) or 0)
-            operational_delay = congestion_delay + previous_leg_delay
-
-            print(
-                f"      • Area congestion (RUI): {congestion_info.get('level', 'unknown')} "
-                f"(score {congestion_info.get('score', 0):.2f}, n={congestion_info.get('sample_size', 0)}) "
-                f"→ +{congestion_delay} min"
-            )
-            if previous_leg_info.get('found'):
-                print(
-                    f"      • Previous leg delay (RUI): {previous_leg_info.get('delay_minutes', 0)} min "
-                    f"(propagated +{previous_leg_delay} min)"
-                )
-            else:
-                print("      • Previous leg delay (RUI): unavailable (0 min applied)")
-
-            if operational_delay > 0:
-                print(f"      ⚠️ Operational adjustment applied: +{operational_delay} min")
+        # (A) 혼잡도 보정: RUI 우선, 없으면 JFK only API
+        if rui_congestion_data:
+            print("   🛩️ Applying RUI congestion use case data...")
+            congestion_info = {**congestion_info, **rui_congestion_data}
         elif self.operational_analyzer.enabled and flight_info['origin'] == 'JFK':
-            print(f"   🛩️ Analyzing JFK-area congestion and previous leg delay...")
-
-            def fetch_congestion():
-                return cached_api_call(
+            print(f"   🛩️ Analyzing JFK-area congestion...")
+            try:
+                congestion_info = cached_api_call(
                     category='operational_congestion',
                     api_func=lambda: self.operational_analyzer.get_jfk_area_congestion(
                         flight_info['scheduled_time']
@@ -580,47 +526,54 @@ class HybridDeparturePredictor:
                     use_stale_on_error=True,
                     origin=flight_info['origin'],
                     hour=flight_info['scheduled_time'].hour
-                )
+                ) or congestion_info
+            except Exception as e:
+                print(f"   ⚠️ Operational congestion analysis failed: {e}")
+        else:
+            print("   ℹ️ Congestion analysis skipped (non-JFK origin or no API key)")
 
-            def fetch_previous_leg():
-                return cached_api_call(
-                    category='previous_leg_delay',
-                    api_func=lambda: self.operational_analyzer.get_previous_leg_delay(
-                        flight_info['flight_number'],
-                        flight_info['scheduled_time']
+        # (B) ADS-B + FR24 기반 직전편 지연 보정 (항상 시도, 실패 시 0)
+        if estimate_previous_leg_delay_minutes is not None and flight_info.get('flight_number'):
+            print("   🛰️ Estimating previous-leg delay via FR24 + ADS-B...")
+            try:
+                adsb_fr24_info = cached_api_call(
+                    category='fr24_adsb_delay',
+                    api_func=lambda: estimate_previous_leg_delay_minutes(
+                        flight_no=flight_info['flight_number'],
+                        expected_origin=flight_info.get('origin'),
+                        expected_dest=flight_info.get('dest'),
+                        expected_date=flight_info.get('scheduled_time'),
+                        collect_time=5,
                     ),
                     use_stale_on_error=True,
                     flight_number=flight_info['flight_number'],
                     date=flight_info['scheduled_time'].date().isoformat()
-                )
-
-            try:
-                congestion_info = fetch_congestion() or congestion_info
-                previous_leg_info = fetch_previous_leg() or previous_leg_info
-
-                congestion_delay = int(congestion_info.get('recommended_extra_delay', 0) or 0)
-                previous_leg_delay = int(previous_leg_info.get('propagated_delay', 0) or 0)
-                operational_delay = congestion_delay + previous_leg_delay
-
-                print(
-                    f"      • Area congestion: {congestion_info.get('level', 'unknown')} "
-                    f"(score {congestion_info.get('score', 0):.2f}, n={congestion_info.get('sample_size', 0)}) "
-                    f"→ +{congestion_delay} min"
-                )
-                if previous_leg_info.get('found'):
-                    print(
-                        f"      • Previous leg delay: {previous_leg_info.get('delay_minutes', 0)} min "
-                        f"(propagated +{previous_leg_delay} min)"
-                    )
-                else:
-                    print("      • Previous leg delay: unavailable (0 min applied)")
-
-                if operational_delay > 0:
-                    print(f"      ⚠️ Operational adjustment applied: +{operational_delay} min")
+                ) or adsb_fr24_info
             except Exception as e:
-                print(f"   ⚠️ Operational factor analysis failed: {e}")
+                print(f"   ⚠️ FR24+ADS-B delay estimation failed: {e}")
         else:
-            print("   ℹ️ Operational factor analysis skipped (non-JFK origin or no API key)")
+            print("   ℹ️ FR24+ADS-B estimator unavailable; skipping")
+
+        congestion_delay = int(congestion_info.get('recommended_extra_delay', 0) or 0)
+        adsb_fr24_delay = int(adsb_fr24_info.get('delay_minutes', 0) or 0)
+        operational_delay = congestion_delay + adsb_fr24_delay
+
+        print(
+            f"      • Area congestion: {congestion_info.get('level', 'unknown')} "
+            f"(score {congestion_info.get('score', 0):.2f}, n={congestion_info.get('sample_size', 0)}) "
+            f"→ +{congestion_delay} min"
+        )
+        print(
+            f"      • FR24+ADS-B previous leg: {adsb_fr24_info.get('reason', 'unknown')} "
+            f"(source={adsb_fr24_info.get('source', 'none')}) "
+            f"→ +{adsb_fr24_delay} min"
+        )
+        if adsb_fr24_info.get('validation_mismatch'):
+            notes = ", ".join(adsb_fr24_info.get('validation_notes', []))
+            print(f"      ⚠️ Validation mismatch (non-blocking): {notes}")
+
+        if operational_delay > 0:
+            print(f"      ⚠️ Operational adjustment applied: +{operational_delay} min")
 
         predicted_delay += operational_delay
 
@@ -895,9 +848,9 @@ Flight Information:
 - Departure Airport: {flight_info['origin']}
 - Scheduled Departure: {flight_info['scheduled_time'].strftime('%Y-%m-%d %H:%M')}
 {delay_source_text}
-- Operational factors (JFK 50-mile congestion + previous-leg propagation): +{operational_delay} minutes
+- Operational factors (congestion + FR24/ADS-B previous-leg): +{operational_delay} minutes
   • Area congestion: {congestion_info.get('level', 'unknown')} (score {congestion_info.get('score', 0):.2f}, sample={congestion_info.get('sample_size', 0)})
-  • Previous leg propagated delay: +{previous_leg_info.get('propagated_delay', 0)} minutes
+  • FR24+ADS-B previous leg delay: +{adsb_fr24_info.get('delay_minutes', 0)} minutes
 - Weather-related delay: {weather_delay} minutes
 - Total expected delay: {total_predicted_delay:.0f} minutes
 - Actual expected departure: {actual_departure.strftime('%Y-%m-%d %H:%M')}
@@ -978,7 +931,7 @@ Time breakdown:
 - Gate walk: {gate_walk_minutes} min
 - Total: {total_time} min
 
-Operational factors: +{operational_delay} min (congestion {congestion_info.get('level', 'unknown')}, previous leg +{previous_leg_info.get('propagated_delay', 0)} min)
+Operational factors: +{operational_delay} min (congestion {congestion_info.get('level', 'unknown')}, FR24+ADS-B previous leg +{adsb_fr24_info.get('delay_minutes', 0)} min)
 Weather: {weather['condition']} (delay risk {weather['delay_risk']}, +{weather_delay} min)
 """
         
@@ -995,7 +948,10 @@ Weather: {weather['condition']} (delay risk {weather['delay_risk']}, +{weather_d
                 'predicted_delay': predicted_delay,
                 'operational_delay': operational_delay,
                 'congestion_level': congestion_info.get('level', 'unknown'),
-                'previous_leg_delay': previous_leg_info.get('delay_minutes', 0),
+                'adsb_fr24_delay': adsb_fr24_info.get('delay_minutes', 0),
+                'adsb_fr24_source': adsb_fr24_info.get('source', 'none'),
+                'adsb_fr24_reason': adsb_fr24_info.get('reason', 'unknown'),
+                'adsb_fr24_validation_mismatch': bool(adsb_fr24_info.get('validation_mismatch', False)),
                 'total_time': total_time
             }
         }

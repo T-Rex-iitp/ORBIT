@@ -23,6 +23,7 @@ class CacheManager:
         # 캐시 유효 기간 설정
         self.ttl = {
             'flight_status': timedelta(minutes=10),  # 항공편 상태: 10분
+            'fr24_adsb_delay': timedelta(minutes=10),# FR24+ADS-B 이전편 지연: 10분
             'weather': timedelta(hours=1),           # 날씨: 1시간
             'tsa_wait': timedelta(hours=2),          # TSA 대기: 2시간
             'travel_time': timedelta(hours=6),       # 교통 시간: 6시간
