@@ -48,6 +48,34 @@ if str(ADSB_PY_DIR) not in sys.path:
 if str(SPEECH_DIR) not in sys.path:
     sys.path.insert(0, str(SPEECH_DIR))
 
+# ── Load .env file → inject into os.environ ────────────────────
+_ENV_PATH = DEPARTURE_PRED_DIR / ".env"
+
+
+def _load_dotenv(env_path: Path = _ENV_PATH) -> None:
+    """Parse departure_prediction/.env and set missing os.environ keys."""
+    if not env_path.is_file():
+        return
+    for line in env_path.read_text(encoding="utf-8", errors="replace").splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        if "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        key = key.strip()
+        value = value.strip()
+        if len(value) >= 2 and (
+            (value[0] == value[-1] == '"') or (value[0] == value[-1] == "'")
+        ):
+            value = value[1:-1]
+        # Only set if not already in environment (env var takes priority)
+        if key and value and key not in os.environ:
+            os.environ[key] = value
+
+
+_load_dotenv()
+
 # ── Import departure_brief functions ───────────────────────────
 try:
     from departure_brief import (
@@ -84,6 +112,14 @@ try:
     from zoneinfo import ZoneInfo
 except ImportError:
     ZoneInfo = None
+
+# ── Optional: faster-whisper for STT ──────────────────────────
+try:
+    from faster_whisper import WhisperModel
+
+    HAS_FASTER_WHISPER = True
+except ImportError:
+    HAS_FASTER_WHISPER = False
 
 # ── Optional: Gemini AI ───────────────────────────────────────
 try:
@@ -187,6 +223,28 @@ TRAFFIC_EMOJI: Dict[str, str] = {
     "heavy": "🔴",
     "unknown": "⚪",
 }
+
+
+TRAVEL_MODE_ICONS: Dict[str, str] = {
+    "DRIVE": "🚗",
+    "TRANSIT": "🚇",
+    "WALK": "🚶",
+    "BICYCLE": "🚲",
+}
+TRAVEL_MODE_LABELS: Dict[str, str] = {
+    "DRIVE": "Drive",
+    "TRANSIT": "Transit",
+    "WALK": "Walk",
+    "BICYCLE": "Bicycle",
+}
+
+
+def _travel_mode_icon(mode: str) -> str:
+    return TRAVEL_MODE_ICONS.get(mode, "🚗")
+
+
+def _travel_mode_label(mode: str) -> str:
+    return TRAVEL_MODE_LABELS.get(mode, "Drive")
 
 
 def _as_bool(value: Any, default: bool = False) -> bool:
@@ -543,8 +601,85 @@ div[data-testid="stMetric"] [data-testid="stMetricDelta"] {
     font-size: 0.8rem;
     margin: 2px;
 }
+
 </style>
 """
+
+
+# ═══════════════════════════════════════════════════════════════
+#  WHISPER STT (Speech-to-Text)
+# ═══════════════════════════════════════════════════════════════
+
+WHISPER_MODEL_SIZES = ("tiny", "base", "small", "medium", "large-v3")
+WHISPER_LANGUAGES = {
+    "English": "en",
+    "Korean": "ko",
+    "Japanese": "ja",
+    "Chinese": "zh",
+    "Auto-detect": "auto",
+}
+
+
+@st.cache_resource(show_spinner="Loading Whisper model …")
+def _load_whisper_model(
+    model_size: str = "base",
+    device: str = "cpu",
+    compute_type: str = "int8",
+) -> Optional[Any]:
+    """Load and cache faster-whisper model (persists across Streamlit reruns)."""
+    if not HAS_FASTER_WHISPER:
+        return None
+    try:
+        return WhisperModel(model_size, device=device, compute_type=compute_type)
+    except Exception:
+        return None
+
+
+def _transcribe_audio_bytes(
+    audio_bytes: bytes,
+    model: Any,
+    language: str = "en",
+) -> Tuple[Optional[str], Optional[str]]:
+    """
+    Transcribe raw audio bytes using a loaded faster-whisper model.
+
+    Adapted from speech/transcribe.py — same Whisper settings.
+
+    Returns:
+        (transcribed_text, error_message)
+    """
+    if model is None:
+        return None, "Whisper model not loaded"
+    if not audio_bytes:
+        return None, "No audio data"
+
+    tmp_path: Optional[Path] = None
+    try:
+        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
+            tmp.write(audio_bytes)
+            tmp_path = Path(tmp.name)
+
+        lang = None if language == "auto" else language
+        segments, info = model.transcribe(
+            str(tmp_path),
+            language=lang,
+            beam_size=5,
+            vad_filter=True,
+            vad_parameters=dict(min_silence_duration_ms=500),
+        )
+        text_parts = [seg.text.strip() for seg in segments]
+        result = " ".join(text_parts).strip()
+        if not result:
+            return None, "No speech detected"
+        return result, None
+    except Exception as exc:
+        return None, f"Transcription failed: {exc}"
+    finally:
+        if tmp_path and tmp_path.exists():
+            try:
+                tmp_path.unlink()
+            except Exception:
+                pass
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -589,7 +724,7 @@ Limit to 4-6 short sentences (or bullet-like lines). No markdown headings/tables
 User query: "{query}"
 Results:
 - Recommended leave time: {leave_time}
-- Drive time: {drive_minutes} min ({traffic_level} traffic)
+- Travel time ({travel_mode}): {drive_minutes} min ({traffic_level} traffic)
 - Airport: {airport_code}
 - Security wait: {security_minutes} min
 - Check-in: {checkin_minutes} min
@@ -661,6 +796,7 @@ def gemini_generate_response(
             leave_time=brief.get("leave_dt", datetime.now()).strftime("%H:%M"),
             drive_minutes=brief.get("drive_minutes", "?"),
             traffic_level=brief.get("traffic_level", "unknown"),
+            travel_mode=_travel_mode_label(brief.get("travel_mode", "DRIVE")),
             airport_code=brief.get("airport_code", "N/A"),
             security_minutes=brief.get("security_minutes", "?"),
             checkin_minutes=brief.get("checkin_minutes", "?"),
@@ -1098,6 +1234,7 @@ def _estimate_operational_delay(
         try:
             adsb_info = estimate_previous_leg_delay_minutes(
                 flight_no=flight_no,
+                fr24_token=os.environ.get("FR24_API_TOKEN", "").strip() or None,
                 expected_origin=origin_code or None,
                 expected_dest=dest_code or None,
                 expected_date=scheduled_departure_dt,
@@ -1379,6 +1516,7 @@ def process_departure_query(
     flight_alt: Optional[float] = None,
     flight_speed: Optional[float] = None,
     force_intent: bool = True,
+    travel_mode: str = "DRIVE",
 ) -> Dict[str, Any]:
     """
     Process a departure query and return structured results.
@@ -1701,6 +1839,12 @@ def process_departure_query(
         api_key = str(config.get("google_maps_api_key", "")).strip()
     result["has_google_api_key"] = bool(api_key)
 
+    # Normalize & store travel mode
+    travel_mode = (travel_mode or "DRIVE").strip().upper()
+    if travel_mode not in ("DRIVE", "TRANSIT", "WALK", "BICYCLE"):
+        travel_mode = "DRIVE"
+    result["travel_mode"] = travel_mode
+
     timeout_sec = int(config.get("traffic_request_timeout_seconds", 6))
     drive_minutes, traffic_level, drive_source = fetch_drive_info(
         origin=origin,
@@ -1771,12 +1915,14 @@ def process_departure_query(
     result["flight_position_source"] = fp_source
 
     # ── Google Maps URL ───────────────────────────────
-    map_url = build_maps_url(origin, destination)
-    if map_url:
-        if "hl=" not in map_url:
-            map_url += "&hl=en"
-        if "gl=" not in map_url:
-            map_url += "&gl=us"
+    _gmode = _GMAPS_EMBED_MODE.get(travel_mode, "driving")
+    map_url = (
+        "https://www.google.com/maps/dir/?api=1"
+        f"&origin={quote_plus(origin)}"
+        f"&destination={quote_plus(destination)}"
+        f"&travelmode={_gmode}"
+        "&hl=en&gl=us"
+    )
     result["map_url"] = map_url
     result["google_maps_api_key"] = api_key
 
@@ -1961,7 +2107,7 @@ def build_timeline_html(brief: Dict[str, Any]) -> str:
         },
         {
             "time": "",
-            "label": f"🚗 Drive to airport ({traffic_emoji} {traffic})",
+            "label": f"{_travel_mode_icon(brief.get('travel_mode', 'DRIVE'))} {_travel_mode_label(brief.get('travel_mode', 'DRIVE'))} to airport ({traffic_emoji} {traffic})",
             "dur": f"{drive_min} min · {traffic} traffic",
             "color": traffic_color,
             "key": False,
@@ -2065,15 +2211,25 @@ def build_timeline_html(brief: Dict[str, Any]) -> str:
 #  GOOGLE MAPS EMBED
 # ═══════════════════════════════════════════════════════════════
 
+_GMAPS_EMBED_MODE: Dict[str, str] = {
+    "DRIVE": "driving",
+    "TRANSIT": "transit",
+    "WALK": "walking",
+    "BICYCLE": "bicycling",
+}
+
+
 def render_google_maps_embed(
     origin: str,
     destination: str,
     api_key: str,
+    travel_mode: str = "DRIVE",
 ) -> None:
-    """Render a Google Maps Embed API iframe showing the driving route."""
+    """Render a Google Maps Embed API iframe showing the route for the given travel mode."""
     if not api_key:
         return
 
+    gmode = _GMAPS_EMBED_MODE.get(travel_mode, "driving")
     origin_enc = quote_plus(origin)
     dest_enc = quote_plus(destination)
     url = (
@@ -2081,7 +2237,7 @@ def render_google_maps_embed(
         f"?key={api_key}"
         f"&origin={origin_enc}"
         f"&destination={dest_enc}"
-        f"&mode=driving"
+        f"&mode={gmode}"
         f"&language=en"
         f"&region=US"
     )
@@ -2301,7 +2457,7 @@ def render_input_summary_table(brief: Dict[str, Any]) -> None:
         ("Scheduled departure", _fmt_dt_safe(brief.get("scheduled_departure_dt"))),
         ("Airport", brief.get("airport_code") or "N/A"),
         ("Origin", brief.get("origin") or "N/A"),
-        ("Travel mode", "DRIVE"),
+        ("Travel mode", f"{_travel_mode_icon(brief.get('travel_mode', 'DRIVE'))} {_travel_mode_label(brief.get('travel_mode', 'DRIVE'))}"),
         ("Baggage", baggage_txt),
         ("TSA PreCheck", precheck_txt),
         ("Terminal / Gate", f'{brief.get("terminal") or "N/A"} / {brief.get("gate") or "N/A"}'),
@@ -2337,7 +2493,7 @@ def render_calculation_detail_table(brief: Dict[str, Any]) -> None:
         ("Target airport arrival", _fmt_dt_safe(brief.get("airport_arrival_dt"))),
         ("Flight departure (scheduled)", _fmt_dt_safe(brief.get("scheduled_departure_dt"))),
         ("Flight departure (expected)", _fmt_dt_safe(brief.get("departure_dt"))),
-        ("Drive time", f'{brief.get("drive_minutes", "N/A")} min'),
+        (f"{_travel_mode_icon(brief.get('travel_mode', 'DRIVE'))} Travel time ({_travel_mode_label(brief.get('travel_mode', 'DRIVE'))})", f'{brief.get("drive_minutes", "N/A")} min'),
         ("Check-in & bag drop", f'{brief.get("checkin_minutes", "N/A")} min'),
         ("Security screening", f'{brief.get("security_minutes", "N/A")} min'),
         ("Walk to gate", f'{brief.get("walk_minutes", "N/A")} min'),
@@ -2533,6 +2689,16 @@ def main() -> None:
             help="e.g. JFK, LGA, EWR, SFO, ICN",
         )
 
+        st.markdown("#### 🚗 Transportation")
+        travel_mode = st.selectbox(
+            "Travel mode",
+            options=list(TRAVEL_MODE_LABELS.keys()),
+            index=0,
+            key="travel_mode_input",
+            format_func=lambda x: f"{_travel_mode_icon(x)} {_travel_mode_label(x)}",
+            help="How you'll get to the airport",
+        )
+
         st.markdown("#### ✈️ Flight")
         flight_number = st.text_input(
             "Flight number",
@@ -2652,6 +2818,30 @@ def main() -> None:
         if ticket_error_txt:
             st.caption(f"Last OCR error: {ticket_error_txt}")
 
+        # ── Voice Input Settings (Whisper STT) ────────
+        st.markdown("#### 🎤 Voice Input (Whisper)")
+        if HAS_FASTER_WHISPER:
+            whisper_model_size = st.selectbox(
+                "Model size",
+                WHISPER_MODEL_SIZES,
+                index=1,  # default: "base"
+                help="Larger models are more accurate but slower",
+            )
+            whisper_language_label = st.selectbox(
+                "Language",
+                list(WHISPER_LANGUAGES.keys()),
+                index=0,  # default: English
+            )
+            whisper_language = WHISPER_LANGUAGES[whisper_language_label]
+            st.caption("Use the 🎙️ mic button next to **Ask** to record.")
+        else:
+            whisper_model_size = "base"
+            whisper_language = "en"
+            st.caption(
+                "faster-whisper not installed.\n\n"
+                "`pip install faster-whisper`"
+            )
+
         st.markdown("---")
         st.markdown(
             '<p style="text-align:center;color:#546e7a;font-size:0.78rem;">'
@@ -2669,7 +2859,7 @@ def main() -> None:
     )
 
     # ── Query bar ────────────────────────────────────
-    col_q, col_btn = st.columns([6, 1])
+    col_q, col_btn, col_mic = st.columns([6, 1, 1])
     with col_q:
         query = st.text_input(
             "query_input",
@@ -2679,10 +2869,51 @@ def main() -> None:
         )
     with col_btn:
         run_btn = st.button("🔍 Ask", type="primary", use_container_width=True)
+    with col_mic:
+        if HAS_FASTER_WHISPER:
+            voice_btn = st.button("🎙️ Voice", type="primary", use_container_width=True)
+        else:
+            voice_btn = False
+            st.button("🎙️ Voice", disabled=True, use_container_width=True,
+                       help="Install faster-whisper for voice input")
+
+    # ── Voice recorder (toggle on/off) ────────────────
+    if HAS_FASTER_WHISPER and voice_btn:
+        # Toggle the recorder panel
+        st.session_state["show_voice_recorder"] = not st.session_state.get("show_voice_recorder", False)
+
+    if st.session_state.get("show_voice_recorder", False) and HAS_FASTER_WHISPER:
+        st.info("🎙️ **Record your question below**, then stop recording. It will be transcribed automatically.")
+        audio_data = st.audio_input("Record your question", key="voice_audio_input")
+        if audio_data is not None:
+            audio_bytes = audio_data.getvalue()
+            if audio_bytes and audio_bytes != st.session_state.get("_last_audio_bytes"):
+                st.session_state["_last_audio_bytes"] = audio_bytes
+                with st.spinner("🎤 Transcribing …"):
+                    w_model = _load_whisper_model(
+                        model_size=whisper_model_size,
+                        device="cpu",
+                        compute_type="int8",
+                    )
+                    text, err = _transcribe_audio_bytes(
+                        audio_bytes, w_model, language=whisper_language,
+                    )
+                if err:
+                    st.warning(f"STT: {err}")
+                elif text:
+                    st.success(f"🎤 Transcribed: _{text}_")
+                    st.session_state["pending_widget_updates"] = {
+                        "query_text_input": text,
+                    }
+                    st.session_state["run_from_voice"] = True
+                    st.session_state["show_voice_recorder"] = False
+                    st.session_state.pop("voice_audio_input", None)
+                    st.rerun()
 
     # ── Process ──────────────────────────────────────
     run_from_ticket = bool(st.session_state.pop("run_from_ticket", False))
-    if (run_btn or run_from_ticket) and query.strip():
+    run_from_voice = bool(st.session_state.pop("run_from_voice", False))
+    if (run_btn or run_from_ticket or run_from_voice) and query.strip():
         with st.spinner("Analyzing departure information …"):
             brief = process_departure_query(
                 query=query.strip(),
@@ -2700,6 +2931,7 @@ def main() -> None:
                 flight_lon=_safe_float(adv_flight_lon),
                 flight_alt=_safe_float(adv_flight_alt),
                 flight_speed=_safe_float(adv_flight_speed),
+                travel_mode=travel_mode,
             )
         st.session_state["brief"] = brief
         st.session_state["query"] = query.strip()
@@ -2748,7 +2980,8 @@ def main() -> None:
         f'Leave by <b class="leave">{leave_dt.strftime("%H:%M")}</b> '
         f'({leave_dt.strftime("%Y-%m-%d")}) '
         f'to reach <b class="airport">{airport}</b> on time. '
-        f'Drive ≈ <b>{drive_min} min</b> with '
+        f'{_travel_mode_icon(brief.get("travel_mode", "DRIVE"))} '
+        f'{_travel_mode_label(brief.get("travel_mode", "DRIVE"))} ≈ <b>{drive_min} min</b> with '
         f'<b style="color:{t_color};">{traffic}</b> traffic.</p></div>',
         unsafe_allow_html=True,
     )
@@ -2777,7 +3010,7 @@ def main() -> None:
     with c1:
         st.metric("🕐 Leave By", leave_dt.strftime("%H:%M"))
     with c2:
-        st.metric("🚗 Drive Time", f"{drive_min} min")
+        st.metric(f"{_travel_mode_icon(brief.get('travel_mode', 'DRIVE'))} Travel Time", f"{drive_min} min")
     with c3:
         emoji = TRAFFIC_EMOJI.get(traffic, "⚪")
         st.metric("🚦 Traffic", f"{emoji} {traffic.capitalize()}")
@@ -2790,54 +3023,32 @@ def main() -> None:
 
     st.markdown("<br>", unsafe_allow_html=True)
 
-    # ── Map  +  Timeline columns ─────────────────────
+    # ── Google Maps + Timeline columns ──────────────────
     col_map, col_info = st.columns([3, 2])
 
     with col_map:
-        st.markdown('<div class="sec-hdr">🗺️ Route & Flight Map</div>', unsafe_allow_html=True)
-
-        # Folium interactive map
-        fmap = create_map(
-            airport_code=brief.get("airport_code", ""),
-            flight_position=brief.get("flight_position"),
+        _tm = brief.get("travel_mode", "DRIVE")
+        st.markdown(
+            f'<div class="sec-hdr">{_travel_mode_icon(_tm)} Google Maps — {_travel_mode_label(_tm)} Route</div>',
+            unsafe_allow_html=True,
         )
-        if fmap and HAS_FOLIUM:
-            st_folium(fmap, width=None, height=420, returned_objects=[])
-        elif not HAS_FOLIUM:
-            # Fallback: use st.map if folium unavailable
-            pts = []
-            ap = AIRPORT_COORDS.get(brief.get("airport_code", ""))
-            if ap:
-                pts.append({"lat": ap[0], "lon": ap[1]})
-            fp = brief.get("flight_position")
-            if fp:
-                pts.append({"lat": fp["lat"], "lon": fp["lon"]})
-            if pts:
-                st.map(pd.DataFrame(pts), zoom=5)
-            else:
-                st.info("Map data not available.")
-        else:
-            st.info("No map markers to display.")
 
-        # Google Maps embed (if API key available)
         gk = brief.get("google_maps_api_key", "")
         if gk:
-            st.markdown(
-                '<div class="sec-hdr">🚗 Google Maps — Traffic Route</div>',
-                unsafe_allow_html=True,
-            )
             render_google_maps_embed(
                 origin=brief.get("origin", ""),
                 destination=brief.get("destination", ""),
                 api_key=gk,
+                travel_mode=_tm,
             )
+        else:
+            st.info("Google Maps API key not set — map unavailable.")
 
-        # Google Maps link (always available, no API key needed)
         map_url = brief.get("map_url", "")
         if map_url:
             st.markdown(
                 f'<a href="{map_url}" target="_blank" class="gmaps-btn">'
-                f"🗺️ Open in Google Maps (English, traffic)</a>",
+                f"🗺️ Open in Google Maps ({_travel_mode_label(_tm)})</a>",
                 unsafe_allow_html=True,
             )
 
@@ -2854,13 +3065,13 @@ def main() -> None:
         if tl_html:
             st.markdown(tl_html, unsafe_allow_html=True)
 
+    # ── Airport Time Plan + Operational Factors (side by side) ──
         st.markdown("<br>", unsafe_allow_html=True)
-
-        # Airport info card
+    col_plan, col_ops = st.columns(2)
+    with col_plan:
         render_airport_card(brief)
+    with col_ops:
         render_operational_card(brief)
-
-    # ── Flight info card ─────────────────────────────
     render_flight_card(brief)
 
     # ── Notes / warnings ─────────────────────────────

@@ -4,6 +4,7 @@ FlightRadar24 API Client
 Gets previous flight information for a given flight number
 """
 
+import os
 import sys
 import json
 import requests
@@ -12,8 +13,9 @@ from typing import Dict, Any, List, Optional
 
 BASE = "https://fr24api.flightradar24.com/api"
 
-# API Token - Replace with your own or load from config
-DEFAULT_API_TOKEN = "your_api_token_here"
+# API Token - env var > hardcoded fallback
+_HARDCODED_TOKEN = "019bbc12-72b8-72b1-a2ed-eecc9ad7b360|CM5ScMxWTPJNA1Urkbi2O4LXb0DSICXjakPF6TEy1f7ca4e4"
+DEFAULT_API_TOKEN = os.environ.get("FR24_API_TOKEN", "").strip() or _HARDCODED_TOKEN
 
 
 def _parse_utc(s: str) -> datetime:

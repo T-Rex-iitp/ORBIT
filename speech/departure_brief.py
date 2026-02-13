@@ -529,12 +529,21 @@ def fetch_drive_info(
         return -1, "unknown", "fallback"
 
 
-def build_maps_url(origin: str, destination: str) -> str:
+_GMAPS_TRAVEL_MODE: dict = {
+    "DRIVE": "driving",
+    "TRANSIT": "transit",
+    "WALK": "walking",
+    "BICYCLE": "bicycling",
+}
+
+
+def build_maps_url(origin: str, destination: str, travel_mode: str = "DRIVE") -> str:
+    gmode = _GMAPS_TRAVEL_MODE.get(travel_mode, "driving")
     return (
         "https://www.google.com/maps/dir/?api=1"
         f"&origin={quote_plus(origin)}"
         f"&destination={quote_plus(destination)}"
-        "&travelmode=driving"
+        f"&travelmode={gmode}"
         "&hl=en"
         "&gl=us"
     )
