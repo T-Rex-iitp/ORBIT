@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-IFTA Departure Assistant — Enhanced Streamlit Dashboard
+ORBIT — Enhanced Streamlit Dashboard
 
 Features:
   - Visual departure timeline with step-by-step breakdown
@@ -2599,7 +2599,7 @@ def render_welcome() -> None:
         """
         <div class="welcome-box">
             <div class="icon">✈️</div>
-            <h2>Welcome to IFTA Departure Assistant</h2>
+            <h2>Welcome to ORBIT</h2>
             <p>
                 Ask a question like<br>
                 <b>"When should I leave for JFK?"</b><br><br>
@@ -2638,7 +2638,7 @@ def _apply_pending_widget_updates() -> None:
 
 def main() -> None:
     st.set_page_config(
-        page_title="IFTA Departure Assistant",
+        page_title="ORBIT: Interpretable Boarding Optimization",
         page_icon="✈️",
         layout="wide",
         initial_sidebar_state="expanded",
@@ -2845,14 +2845,14 @@ def main() -> None:
         st.markdown("---")
         st.markdown(
             '<p style="text-align:center;color:#546e7a;font-size:0.78rem;">'
-            "IFTA Departure Assistant v2.0<br>Team T-Rex · CMU IITP 2025</p>",
+            "ORBIT: Optimal Recommendation Framework for Boarding with Interpretable Timelines</p>",
             unsafe_allow_html=True,
         )
 
     # ── Header ───────────────────────────────────────
     st.markdown(
         '<div style="text-align:center;padding:6px 0 18px 0;">'
-        '<h1 style="margin:0;font-size:2.1rem;">✈️ IFTA Departure Assistant</h1>'
+        '<h1 style="margin:0;font-size:2.1rem;">✈️ ORBIT: Optimal Recommendation Framework for Boarding <br> with Interpretable Timelines</h1>'
         '<p style="color:#8ab4f8;font-size:0.95rem;margin-top:2px;">'
         "AI-powered departure guidance with real-time traffic & flight data</p></div>",
         unsafe_allow_html=True,
