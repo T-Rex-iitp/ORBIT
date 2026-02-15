@@ -1,29 +1,29 @@
 """
-Departure Prediction 모듈
+Departure Prediction module.
 
-출발 시간 예측 시스템을 Python 패키지로 사용할 수 있도록 합니다.
+This package provides a departure-time prediction system as a Python package.
 
-## 모듈 구성
+## Module structure
 
-- `data`: 데이터 수집 및 전처리
-- `models`: Transformer 및 LSTM 모델
-- `utils`: 유틸리티 함수
+- `data`: data collection and preprocessing
+- `models`: Transformer and LSTM models
+- `utils`: utility functions
 
-## 사용 예시
+## Usage example
 
 ```python
 from departure_prediction.data.data_collector import JFKDataCollector
 from departure_prediction.models.transformer_model import create_model
 from departure_prediction.predict import DeparturePredictionAPI
 
-# 데이터 수집
+# Collect data
 collector = JFKDataCollector()
 data = collector.collect_security_wait_time()
 
-# 모델 생성
+# Create model
 model = create_model('transformer', input_dim=8)
 
-# 예측
+# Predict
 api = DeparturePredictionAPI(
     model_path='checkpoints/best_model.pt',
     normalization_params_path='normalization_params.json'

@@ -1,6 +1,6 @@
 """
-데이터 수집 모듈
-JFK 공항의 보안 대기 시간 및 항공편 정보를 수집하여 CSV로 저장
+Data collection module.
+Collects JFK airport security wait times and flight information, then saves them to CSV.
 """
 import os
 import time
@@ -19,26 +19,26 @@ SECURITY_WAIT_FORM_XPATH = '//*[@id="security-wait"]/form'
 
 
 class JFKDataCollector:
-    """JFK 공항 데이터 수집 클래스"""
+    """JFK airport data collection class."""
     
     def __init__(self, output_dir: str = "data/collected"):
         """
         Args:
-            output_dir: 수집된 데이터를 저장할 디렉토리
+            output_dir: Directory where collected data will be saved.
         """
         self.output_dir = output_dir
         os.makedirs(self.output_dir, exist_ok=True)
         self.driver = None
         
     def create_driver(self, headless: bool = True) -> webdriver.Chrome:
-        """Chrome WebDriver 생성"""
+        """Create a Chrome WebDriver."""
         chrome_options = Options()
         if headless:
             chrome_options.add_argument("--headless=new")
         chrome_options.add_argument("--no-sandbox")
         chrome_options.add_argument("--disable-dev-shm-usage")
         
-        # ChromeDriver 경로 설정
+        # Configure ChromeDriver path
         crawl_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "crawl")
         driver_path = os.path.join(crawl_dir, "chromedriver-mac-x64", "chromedriver")
         
@@ -46,15 +46,15 @@ class JFKDataCollector:
             service = Service(executable_path=driver_path)
             return webdriver.Chrome(service=service, options=chrome_options)
         else:
-            # ChromeDriver가 PATH에 있는 경우
+            # If ChromeDriver is available in PATH
             return webdriver.Chrome(options=chrome_options)
     
     def collect_security_wait_time(self) -> dict:
         """
-        보안 대기 시간 데이터 수집
+        Collect security wait-time data.
         
         Returns:
-            dict: 수집된 데이터 (timestamp, terminal, wait_time 등)
+            dict: Collected data (timestamp, terminal, wait_time, etc.)
         """
         self.driver = self.create_driver(headless=True)
         wait = WebDriverWait(self.driver, 10)
@@ -71,13 +71,13 @@ class JFKDataCollector:
                 EC.presence_of_element_located((By.XPATH, SECURITY_WAIT_FORM_XPATH))
             )
             
-            # 테이블 파싱
+            # Parse tables
             tables = form_element.find_elements(By.TAG_NAME, "table")
             
             for table in tables:
                 rows = table.find_elements(By.TAG_NAME, "tr")
                 
-                # 헤더 추출
+                # Extract headers
                 headers = []
                 for row in rows:
                     header_cells = row.find_elements(By.TAG_NAME, "th")
@@ -85,7 +85,7 @@ class JFKDataCollector:
                         headers = [h.text.strip() for h in header_cells]
                         break
                 
-                # 데이터 행 추출
+                # Extract data rows
                 for row in rows:
                     cells = row.find_elements(By.TAG_NAME, "td")
                     if cells and len(cells) >= 2:
@@ -93,17 +93,17 @@ class JFKDataCollector:
                             'terminal': cells[0].text.strip(),
                             'wait_time': cells[1].text.strip()
                         }
-                        # TSA Pre 시간이 있으면 추가 (선택적)
+                        # Add TSA Pre time if present (optional)
                         if len(cells) > 2:
                             terminal_data['tsa_pre_wait_time'] = cells[2].text.strip()
                         
                         collected_data['terminals'].append(terminal_data)
             
-            print(f"✓ 데이터 수집 완료: {len(collected_data['terminals'])}개 터미널")
+            print(f"✓ Data collection complete: {len(collected_data['terminals'])} terminals")
             return collected_data
             
         except Exception as e:
-            print(f"✗ 데이터 수집 실패: {str(e)}")
+            print(f"✗ Data collection failed: {str(e)}")
             return None
         finally:
             if self.driver:
@@ -111,14 +111,14 @@ class JFKDataCollector:
     
     def save_to_csv(self, data: dict, filename: str = None):
         """
-        수집된 데이터를 CSV 파일로 저장
+        Save collected data to a CSV file.
         
         Args:
-            data: 수집된 데이터
-            filename: 저장할 파일명 (기본값: timestamp.csv)
+            data: Collected data.
+            filename: File name to save (default: timestamp.csv).
         """
         if not data or not data.get('terminals'):
-            print("저장할 데이터가 없습니다.")
+            print("No data to save.")
             return
         
         if filename is None:
@@ -127,7 +127,7 @@ class JFKDataCollector:
         
         filepath = os.path.join(self.output_dir, filename)
         
-        # CSV 작성
+        # Write CSV
         with open(filepath, 'w', newline='', encoding='utf-8') as f:
             fieldnames = ['timestamp', 'terminal', 'wait_time', 'tsa_pre_wait_time']
             writer = csv.DictWriter(f, fieldnames=fieldnames)
@@ -142,52 +142,52 @@ class JFKDataCollector:
                 }
                 writer.writerow(row)
         
-        print(f"✓ 데이터 저장 완료: {filepath}")
+        print(f"✓ Data saved successfully: {filepath}")
     
     def collect_continuous(self, interval_minutes: int = 15, duration_hours: int = 24):
         """
-        지속적으로 데이터 수집
+        Collect data continuously.
         
         Args:
-            interval_minutes: 수집 간격 (분)
-            duration_hours: 총 수집 시간 (시간)
+            interval_minutes: Collection interval in minutes.
+            duration_hours: Total collection duration in hours.
         """
         start_time = time.time()
         end_time = start_time + (duration_hours * 3600)
         
-        # 하나의 통합 CSV 파일에 저장
+        # Save into one consolidated CSV file
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         filename = f"continuous_data_{timestamp}.csv"
         
-        print(f"⏰ {duration_hours}시간 동안 {interval_minutes}분 간격으로 데이터 수집 시작...")
+        print(f"⏰ Starting data collection for {duration_hours} hours at {interval_minutes}-minute intervals...")
         
         iteration = 0
         while time.time() < end_time:
             iteration += 1
-            print(f"\n[반복 {iteration}] {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+            print(f"\n[Iteration {iteration}] {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
             
             data = self.collect_security_wait_time()
             if data:
                 self.save_to_csv(data, filename)
             
-            # 다음 수집까지 대기
+            # Wait until the next collection cycle
             if time.time() < end_time:
                 sleep_time = interval_minutes * 60
-                print(f"⏳ {interval_minutes}분 대기 중...")
+                print(f"⏳ Waiting for {interval_minutes} minutes...")
                 time.sleep(sleep_time)
 
 
 def main():
-    """메인 실행 함수"""
+    """Main entry point."""
     collector = JFKDataCollector()
     
-    # 단일 수집 예제
-    print("=== JFK 보안 대기 시간 데이터 수집 ===\n")
+    # Single collection example
+    print("=== JFK Security Wait Time Data Collection ===\n")
     data = collector.collect_security_wait_time()
     if data:
         collector.save_to_csv(data)
     
-    # 지속적 수집 (주석 해제하여 사용)
+    # Continuous collection (uncomment to use)
     # collector.collect_continuous(interval_minutes=15, duration_hours=24)
 
 
@@ -195,4 +195,4 @@ if __name__ == "__main__":
     try:
         main()
     except KeyboardInterrupt:
-        print("\n\n프로그램이 중단되었습니다.")
+        print("\n\nProgram interrupted.")

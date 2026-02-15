@@ -1,130 +1,130 @@
 # AI-Enabled Flight Departure Time Predictor
 
-AI 기반 항공편 출발 시간 추천 시스템. Transformer 모델, 실시간 API, Google Gemini를 결합하여 최적의 집 출발 시간을 추천합니다.
+AI-based flight departure recommendation system. It combines a Transformer model, real-time APIs, and Google Gemini to recommend the optimal time to leave home.
 
-## 🎯 주요 기능
+## 🎯 Key Features
 
-1. **다중 입력 방식**
-   - 티켓 이미지 업로드 (Google Gemini Vision OCR)
-   - 수동 정보 입력
+1. **Multiple input methods**
+   - Upload ticket image (Google Gemini Vision OCR)
+   - Manual information input
 
-2. **실시간 지연 예측**
-   - AviationStack API로 항공사 공식 발표 확인
-   - FT-Transformer 모델로 AI 예측 (60,000+ 항공편 학습)
-   - Google Weather API로 날씨 영향 분석
+2. **Real-time delay prediction**
+   - Check official airline announcements via AviationStack API
+   - AI prediction with FT-Transformer model (trained on 60,000+ flights)
+   - Analyze weather impact via Google Weather API
 
-3. **운항 컨텍스트 기반 지연 보정 (신규)**
-   - JFK 50-mile 권역 혼잡도 분석 (JFK/LGA/EWR 등 주변 공항 지연률 샘플링)
-   - 이전 비행(직전 레그) 지연 전이 반영
+3. **Operational-context delay adjustment (New)**
+   - JFK 50-mile zone congestion analysis (sampling delay rates at nearby airports such as JFK/LGA/EWR)
+   - Reflect delay propagation from the previous flight (previous leg)
 
-4. **통합 소요시간 계산**
-   - Google Routes API (교통 정보, 대중교통 상세 경로)
-   - TSA 보안 검색 대기시간 (시간대별 통계)
-   - 수하물 체크인 시간 (30분 vs 기내반입 0분)
-   - 게이트 이동 시간
+4. **Integrated total-time calculation**
+   - Google Routes API (traffic info, detailed public transit routes)
+   - TSA security screening wait time (time-of-day statistics)
+   - Baggage check-in time (30 minutes vs 0 minutes for carry-on only)
+   - Gate walking time
 
-4. **AI 추천**
-   - Google Gemini LLM + Vision (통합 API)
-   - 자연스러운 설명과 추가 팁 제공
+4. **AI recommendation**
+   - Google Gemini LLM + Vision (unified API)
+   - Natural explanation with additional tips
 
-## 🏗️ 시스템 아키텍처
+## 🏗️ System Architecture
 
 ```
-티켓 이미지/수동 입력
+Ticket image / manual input
     ↓
-Gemini Vision OCR / 직접 입력
+Gemini Vision OCR / direct input
     ↓
-실시간 항공편 상태 확인 (AviationStack API)
-    ├─ 지연 정보 있음 → 항공사 공식 발표 사용
-    └─ 정보 없음 → FT-Transformer AI 예측
+Real-time flight status check (AviationStack API)
+    ├─ Delay information exists -> use official airline announcement
+    └─ No information -> FT-Transformer AI prediction
     ↓
-운항 컨텍스트 보정
-    ├─ JFK 50-mile 권역 혼잡도
-    └─ 직전 비행 지연 전이
+Operational-context adjustment
+    ├─ JFK 50-mile zone congestion
+    └─ Previous-flight delay propagation
     ↓
-날씨 API (Google Weather) → 추가 지연 (+0/15/30분)
+Weather API (Google Weather) -> additional delay (+0/15/30 minutes)
     ↓
-교통 정보 (Google Routes API) + TSA + 수하물
+Traffic info (Google Routes API) + TSA + baggage
     ↓
-공항 도착 목표 = 실제 출발 - 2시간
+Airport arrival target = actual departure - 2 hours
     ↓
-Gemini LLM 자연어 추천
+Gemini LLM natural-language recommendation
 ```
 
-## 📦 빠른 시작 (Quick Start)
+## 📦 Quick Start
 
-### 1. 레포 클론
+### 1. Clone repository
 
 ```bash
 git clone https://github.com/T-Rex-iitp/AI-Enabled-IFTA.git
 cd AI-Enabled-IFTA/departure_prediction
 ```
 
-### 2. 라이브러리 설치
+### 2. Install libraries
 
 ```bash
 pip install -r requirements.txt
 ```
 
-### 3. 환경 변수 설정
+### 3. Set environment variables
 
 ```bash
-# .env 파일 생성 또는 직접 export
+# Create .env file or export directly
 export GEMINI_API_KEY=your_gemini_api_key
 export USE_GEMINI=true
 export GOOGLE_MAPS_API_KEY=your_google_maps_key
 export AVIATIONSTACK_API_KEY=your_aviationstack_key
 ```
 
-**API 키 발급:**
-- **Gemini API**: https://aistudio.google.com/app/apikey (무료)
-- **Google Maps**: https://console.cloud.google.com/ ($300 무료 크레딧)
-- **AviationStack**: https://aviationstack.com/ (무료: 100 requests/월)
+**Get API keys:**
+- **Gemini API**: https://aistudio.google.com/app/apikey (free)
+- **Google Maps**: https://console.cloud.google.com/ ($300 free credit)
+- **AviationStack**: https://aviationstack.com/ (free: 100 requests/month)
 
-### 4. 바로 실행
+### 4. Run immediately
 
 ```bash
 python app_interactive.py
 ```
 
-## 🔧 상세 설정
+## 🔧 Detailed Configuration
 
-### 환경 변수 (.env 파일)
+### Environment variables (.env file)
 
 ```bash
 # Google Maps API (Routes + Weather)
 GOOGLE_MAPS_API_KEY=AIzaSy...
 
-# AviationStack API (실시간 항공편 정보)
+# AviationStack API (real-time flight information)
 AVIATIONSTACK_API_KEY=6a3f93...
 
 # Gemini API (LLM + Vision)
 GEMINI_API_KEY=AIzaSy...
 
-# Gemini 사용 활성화
+# Enable Gemini usage
 USE_GEMINI=true
 ```
 
-### Ollama 로컬 모델 사용 (선택사항)
+### Use local Ollama model (optional)
 
-Gemini 대신 로컬 모델을 사용하려면:
+To use a local model instead of Gemini:
 
 ```bash
-# Ollama 설치
+# Install Ollama
 curl -fsSL https://ollama.ai/install.sh | sh
 
-# 모델 다운로드
+# Download models
 ollama pull gpt-oss:120b  # 65GB
 ollama pull llava-phi3    # 2.9GB
 
-# 환경 변수
+# Environment variables
 export USE_GEMINI=false
 export OLLAMA_HOST=http://127.0.0.1:11434
 ```
 
-## 📦 설치 (구버전 - Ollama 전용)
+## 📦 Installation (Legacy - Ollama only)
 
-### 1. Python 패키지 설치
+### 1. Install Python packages
 
 ```bash
 conda create -n flight python=3.10
@@ -132,72 +132,72 @@ conda activate flight
 pip install -r requirements.txt
 ```
 
-### 2. Ollama 설치 (로컬 LLM)
+### 2. Install Ollama (local LLM)
 
 ```bash
-# Ollama 설치 (https://ollama.ai)
+# Install Ollama (https://ollama.ai)
 curl -fsSL https://ollama.ai/install.sh | sh
 
-# 한국어 LLM 다운로드 (65GB)
+# Download Korean LLM (65GB)
 ollama pull gpt-oss:120b
 
-# Vision 모델 다운로드 (2.9GB)
+# Download Vision model (2.9GB)
 ollama pull llava-phi3
 ```
 
-### 3. 학습된 모델 다운로드
+### 3. Download pretrained models
 
 ```bash
-# models/ 폴더에 다음 파일들이 필요합니다:
-# - ft_transformer_full.pkl (FT-Transformer 모델)
-# - delay_predictor_full.pkl (전처리 파이프라인)
-# - xgboost_predictor.pkl (선택사항: XGBoost 모델)
+# The following files are required in the models/ folder:
+# - ft_transformer_full.pkl (FT-Transformer model)
+# - delay_predictor_full.pkl (preprocessing pipeline)
+# - xgboost_predictor.pkl (optional: XGBoost model)
 ```
 
-### 4. API 키 설정
+### 4. Set API keys
 
-`.env` 파일 생성:
+Create `.env` file:
 
 ```bash
 # Google Maps API (Routes + Weather)
 GOOGLE_MAPS_API_KEY=your_google_api_key_here
 
-# AviationStack API (실시간 항공편 정보)
+# AviationStack API (real-time flight information)
 AVIATIONSTACK_API_KEY=your_aviationstack_key_here
 
-# Ollama (로컬 서버, API 키 불필요)
+# Ollama (local server, no API key required)
 OLLAMA_URL=http://localhost:11434
 ```
 
-**API 키 발급:**
-- Google Maps: https://console.cloud.google.com/ ($300 무료 크레딧)
-- AviationStack: https://aviationstack.com/ (무료 티어: 100 requests/month)
+**Get API keys:**
+- Google Maps: https://console.cloud.google.com/ ($300 free credit)
+- AviationStack: https://aviationstack.com/ (free tier: 100 requests/month)
 
-## 🚀 사용법
+## 🚀 Usage
 
-### 인터랙티브 앱 실행
+### Run interactive app
 
 ```bash
 python app_interactive.py
 ```
 
-**사용 흐름:**
-1. 티켓 이미지 업로드 또는 수동 입력 선택
-2. 현재 위치 입력 (주소)
-3. 이동 수단 선택 (자동차/대중교통/도보/자전거)
-4. 수하물 정보 입력
-5. AI 추천 결과 확인!
+**Usage flow:**
+1. Select ticket image upload or manual input
+2. Enter current location (address)
+3. Select travel mode (car/public transit/walk/bike)
+4. Enter baggage information
+5. Check AI recommendation result
 
-### 직접 코드 사용
+### Use directly in code
 
 ```python
 from hybrid_predictor import HybridDeparturePredictor
 from datetime import datetime
 
-# 모델 로드
+# Load model
 predictor = HybridDeparturePredictor('models/delay_predictor_full.pkl')
 
-# 항공편 정보
+# Flight information
 flight_info = {
     'airline_code': 'B6',
     'airline_name': 'JetBlue Airways',
@@ -209,7 +209,7 @@ flight_info = {
     'has_tsa_precheck': False
 }
 
-# 추천 받기
+# Get recommendation
 result = predictor.recommend_departure(
     address='450 W 42nd St, New York, NY 10036',
     flight_info=flight_info,
@@ -232,147 +232,147 @@ result = predictor.recommend_departure(
 print(result['recommendation'])
 ```
 
-> `rui_usecase_data`를 전달하지 않으면 기존처럼 AviationStack 기반 혼잡도/직전편 분석 로직을 사용합니다.
+> If `rui_usecase_data` is not provided, it uses the existing AviationStack-based congestion/previous-flight analysis logic.
 
-## 📊 모델 학습 (선택사항)
+## 📊 Model Training (Optional)
 
-### 데이터 준비
+### Prepare data
 
 ```bash
-# Kaggle에서 항공편 데이터 다운로드
+# Download flight data from Kaggle
 # https://www.kaggle.com/datasets/...
 # data/flight_data_2024_sample.csv
 ```
 
-### FT-Transformer 학습
+### Train FT-Transformer
 
 ```bash
 jupyter notebook train_delay_predictor.ipynb
 ```
 
-### XGBoost 학습 (대안)
+### Train XGBoost (Alternative)
 
 ```bash
 jupyter notebook train_xgboost.ipynb
 ```
 
-**학습 결과:**
-- FT-Transformer: MAE 26.12분, R² 0.0117
-- XGBoost: MAE 28.2분, R² 0.017
-- **결론:** 항공편 지연은 근본적으로 예측 불가 (날씨, 기계 결함, 연쇄 지연)
-- **해결:** 통계적 기준선 + 실시간 API 조합
+**Training results:**
+- FT-Transformer: MAE 26.12 min, R² 0.0117
+- XGBoost: MAE 28.2 min, R² 0.017
+- **Conclusion:** Flight delays are fundamentally unpredictable (weather, mechanical failures, cascading delays)
+- **Solution:** Statistical baseline + real-time API combination
 
-## 📁 프로젝트 구조
+## 📁 Project Structure
 
 ```
 departure_prediction/
-├── app_interactive.py          # 메인 인터랙티브 앱
-├── hybrid_predictor.py         # 핵심 예측 시스템
-├── requirements.txt            # Python 패키지
-├── .env.example               # 환경변수 예시
+├── app_interactive.py          # Main interactive app
+├── hybrid_predictor.py         # Core prediction system
+├── requirements.txt            # Python packages
+├── .env.example               # Environment variable examples
 │
-├── utils/                      # 유틸리티 모듈
-│   ├── flight_status_checker.py  # 실시간 항공편 상태
+├── utils/                      # Utility modules
+│   ├── flight_status_checker.py  # Real-time flight status
 │   ├── google_routes.py          # Google Routes API
 │   ├── weather_google.py         # Google Weather API
-│   ├── tsa_wait_time.py          # TSA 대기시간 통계
-│   ├── ticket_ocr.py             # 티켓 OCR (LLaVA)
-│   ├── real_flight_data.py       # 항공편 데이터 수집
-│   └── generate_ticket_image.py  # 테스트 티켓 생성
+│   ├── tsa_wait_time.py          # TSA wait time statistics
+│   ├── ticket_ocr.py             # Ticket OCR (LLaVA)
+│   ├── real_flight_data.py       # Flight data collection
+│   └── generate_ticket_image.py  # Test ticket generation
 │
-├── models/                     # 학습된 모델 파일
+├── models/                     # Trained model files
 │   ├── ft_transformer_full.pkl
 │   ├── delay_predictor_full.pkl
 │   └── xgboost_predictor.pkl
 │
-├── data/                       # 데이터 파일
+├── data/                       # Data files
 │   ├── flight_data_2024_sample.csv
 │   ├── flights_20260205.json
 │   └── test_tickets_today.json
 │
-├── test_tickets/              # 테스트용 티켓 이미지
+├── test_tickets/              # Test ticket images
 │
-└── train_*.ipynb              # 모델 학습 노트북
+└── train_*.ipynb              # Model training notebooks
 ```
 
-## 🔧 설정 옵션
+## 🔧 Configuration Options
 
-### TSA Wait Time 설정
+### TSA Wait Time configuration
 
-`utils/tsa_wait_time.py`에서 공항별 대기시간 조정:
+Adjust airport-specific wait times in `utils/tsa_wait_time.py`:
 
 ```python
 TSA_WAIT_TIMES = {
     'JFK': {
-        'peak': 45,      # 피크 시간 (07:00-10:00, 16:00-19:00)
-        'normal': 25,    # 보통 시간
-        'off_peak': 15   # 한가한 시간
+        'peak': 45,      # Peak time (07:00-10:00, 16:00-19:00)
+        'normal': 25,    # Normal time
+        'off_peak': 15   # Quiet time
     }
 }
 ```
 
-### 날씨 지연 설정
+### Weather delay configuration
 
-`utils/weather_google.py`에서 지연 위험도 조정:
+Adjust delay risk levels in `utils/weather_google.py`:
 
 ```python
-# High risk: +30분
-# Medium risk: +15분
-# Low risk: 0분
+# High risk: +30 min
+# Medium risk: +15 min
+# Low risk: 0 min
 ```
 
-## 📝 API 사용량
+## 📝 API Usage
 
-**무료 티어 기준 (1회 추천당):**
+**Based on free tier (per recommendation):**
 - Google Routes API: 1 request ($5-10 per 1,000)
 - Google Weather API: 1 request
-- AviationStack: 1 request (100/month 무료)
-- Ollama: 무료 (로컬)
+- AviationStack: 1 request (100/month free)
+- Ollama: free (local)
 
-**예상 비용:**
-- Google Cloud $300 크레딧으로 수천 회 사용 가능
-- 이후 월 $200 무료 크레딧
+**Estimated cost:**
+- Thousands of uses possible with Google Cloud $300 credit
+- Then $200 free monthly credit
 
-## 🐛 트러블슈팅
+## 🐛 Troubleshooting
 
-### Ollama 연결 오류
+### Ollama connection error
 ```bash
-# Ollama 서버 시작
+# Start Ollama server
 ollama serve
 
-# 모델 확인
+# Check models
 ollama list
 ```
 
-### Google API 오류
+### Google API error
 ```bash
-# API 키 확인
+# Check API key
 echo $GOOGLE_MAPS_API_KEY
 
-# .env 파일 권한 확인
+# Check .env file permissions
 chmod 600 .env
 ```
 
-### 모델 로드 오류
+### Model load error
 ```bash
-# PyTorch 버전 확인 (2.6+ 필요)
+# Check PyTorch version (2.6+ required)
 python -c "import torch; print(torch.__version__)"
 
-# weights_only=False 옵션 필요
+# weights_only=False option required
 ```
 
-## 🤝 기여
+## 🤝 Contributing
 
-이슈 및 PR 환영합니다!
+Issues and PRs are welcome.
 
-## 📄 라이선스
+## 📄 License
 
 MIT License
 
-## 👥 개발팀
+## 👥 Development Team
 
 IITP AI Project Team
 
 ---
 
-**Note:** 이 시스템은 참고용입니다. 실제 항공편 이용 시 항공사 공식 정보를 확인하세요.
+**Note:** This system is for reference purposes. For actual travel, always check official airline information.

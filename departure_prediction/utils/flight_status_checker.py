@@ -1,6 +1,6 @@
 """
-실시간 항공편 상태 및 지연 정보 확인
-AviationStack API 사용
+Check real-time flight status and delay information.
+Uses the AviationStack API.
 """
 import os
 import requests
@@ -15,23 +15,23 @@ except:
 
 
 class FlightStatusChecker:
-    """실시간 항공편 상태 확인"""
+    """Real-time flight status checker."""
     
     def __init__(self, api_key: Optional[str] = None):
         """
         Args:
-            api_key: AviationStack API 키
+            api_key: AviationStack API key
         """
         self.api_key = api_key or os.getenv('AVIATIONSTACK_API_KEY')
         self.base_url = "http://api.aviationstack.com/v1/flights"
     
     def check_flight_status(self, flight_number: str, date: Optional[datetime] = None) -> Dict:
         """
-        항공편 번호로 실시간 상태 확인
+        Check real-time status by flight number.
         
         Args:
-            flight_number: 항공편 번호 (예: 'AA100', 'DL302')
-            date: 출발 날짜 (기본값: 오늘)
+            flight_number: Flight number (e.g., 'AA100', 'DL302')
+            date: Departure date (default: today)
             
         Returns:
             {
@@ -43,13 +43,13 @@ class FlightStatusChecker:
                 'actual_departure': datetime,
                 'delay_minutes': int,
                 'is_delayed': bool,
-                'delay_reason': str,  # 있을 경우
+                'delay_reason': str,  # If available
                 'gate': str,
                 'terminal': str
             }
         """
         if not self.api_key:
-            print("⚠️ API 키가 없습니다. 샘플 데이터를 반환합니다.")
+            print("⚠️ API key is missing. Returning sample data.")
             return self._get_sample_status(flight_number)
         
         if date is None:
@@ -61,17 +61,17 @@ class FlightStatusChecker:
         }
         
         try:
-            print(f"🔍 {flight_number} 항공편 상태 확인 중...")
+            print(f"🔍 Checking status for flight {flight_number}...")
             response = requests.get(self.base_url, params=params, timeout=10)
             response.raise_for_status()
             
             data = response.json()
             
             if 'data' not in data or len(data['data']) == 0:
-                print(f"⚠️ {flight_number} 항공편을 찾을 수 없습니다.")
+                print(f"⚠️ Flight {flight_number} not found.")
                 return self._get_sample_status(flight_number)
             
-            # 가장 최근 항공편 정보
+            # Most recent flight info
             flight = data['data'][0]
             
             scheduled_str = flight.get('departure', {}).get('scheduled')
@@ -82,26 +82,26 @@ class FlightStatusChecker:
             estimated_time = datetime.fromisoformat(estimated_str.replace('Z', '+00:00')) if estimated_str else scheduled_time
             actual_time = datetime.fromisoformat(actual_str.replace('Z', '+00:00')) if actual_str else None
             
-            # 지연 시간 계산
+            # Calculate delay minutes
             delay_minutes = flight.get('departure', {}).get('delay', 0) or 0
             
-            # 실제로 지연되었는지 확인
+            # Check whether it is truly delayed
             is_delayed = False
             if estimated_time and scheduled_time:
                 delay_minutes = int((estimated_time - scheduled_time).total_seconds() / 60)
-                is_delayed = delay_minutes > 15  # 15분 이상이면 지연으로 간주
+                is_delayed = delay_minutes > 15  # Treat as delayed if 15+ minutes
             
             status = flight.get('flight_status', 'unknown')
             
-            # 상태 한글 번역
+            # Human-readable status label
             status_kr = {
-                'scheduled': '정상 예정',
-                'active': '운항 중',
-                'landed': '도착 완료',
-                'cancelled': '결항',
-                'delayed': '지연',
-                'diverted': '회항',
-                'unknown': '정보 없음'
+                'scheduled': 'On schedule',
+                'active': 'In flight',
+                'landed': 'Landed',
+                'cancelled': 'Cancelled',
+                'delayed': 'Delayed',
+                'diverted': 'Diverted',
+                'unknown': 'No information'
             }.get(status, status)
             
             result = {
@@ -120,24 +120,24 @@ class FlightStatusChecker:
                 'destination': flight.get('arrival', {}).get('iata', 'N/A'),
             }
             
-            # 콘솔 출력
+            # Console output
             print(f"✅ {result['flight_number']} - {result['airline']}")
-            print(f"   상태: {result['status_kr']}")
-            print(f"   출발: {result['origin']} → {result['destination']}")
-            print(f"   예정: {scheduled_time.strftime('%Y-%m-%d %H:%M') if scheduled_time else 'N/A'}")
+            print(f"   Status: {result['status_kr']}")
+            print(f"   Route: {result['origin']} → {result['destination']}")
+            print(f"   Scheduled: {scheduled_time.strftime('%Y-%m-%d %H:%M') if scheduled_time else 'N/A'}")
             if is_delayed:
-                print(f"   ⚠️ 지연: {delay_minutes}분")
-                print(f"   예상 출발: {estimated_time.strftime('%Y-%m-%d %H:%M') if estimated_time else 'N/A'}")
-            print(f"   게이트: {result['terminal']} - {result['gate']}")
+                print(f"   ⚠️ Delay: {delay_minutes} min")
+                print(f"   Estimated departure: {estimated_time.strftime('%Y-%m-%d %H:%M') if estimated_time else 'N/A'}")
+            print(f"   Gate: {result['terminal']} - {result['gate']}")
             
             return result
             
         except Exception as e:
-            print(f"❌ API 호출 실패: {e}")
+            print(f"❌ API call failed: {e}")
             return self._get_sample_status(flight_number)
     
     def _get_sample_status(self, flight_number: str) -> Dict:
-        """샘플 상태 데이터"""
+        """Sample status data."""
         now = datetime.now()
         scheduled = now + timedelta(hours=3)
         
@@ -145,7 +145,7 @@ class FlightStatusChecker:
             'flight_number': flight_number,
             'airline': 'Sample Airlines',
             'status': 'scheduled',
-            'status_kr': '정상 예정',
+            'status_kr': 'On schedule',
             'scheduled_departure': scheduled,
             'estimated_departure': scheduled,
             'actual_departure': None,
@@ -160,26 +160,26 @@ class FlightStatusChecker:
 
 def check_flight(flight_number: str, api_key: Optional[str] = None) -> Dict:
     """
-    간편 함수: 항공편 상태 확인
+    Convenience function: check flight status.
     
     Args:
-        flight_number: 항공편 번호
-        api_key: API 키 (옵션)
+        flight_number: Flight number
+        api_key: API key (optional)
         
     Returns:
-        항공편 상태 정보
+        Flight status information
     """
     checker = FlightStatusChecker(api_key)
     return checker.check_flight_status(flight_number)
 
 
 if __name__ == '__main__':
-    # 테스트
+    # Test
     print("=" * 60)
-    print("실시간 항공편 상태 확인 테스트")
+    print("Real-time Flight Status Test")
     print("=" * 60)
     
-    # 수집된 데이터에서 샘플 항공편 번호 사용
+    # Use sample flight number from collected data
     test_flights = ['AA100', 'DL302', 'B6623']
     
     for flight_num in test_flights:

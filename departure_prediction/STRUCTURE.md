@@ -3,78 +3,78 @@
 ```
 departure_prediction/
 │
-├── �� README.md                    # 프로젝트 설명 및 사용법
-├── 📄 requirements.txt             # Python 패키지 의존성
-├── 📄 .env.example                 # 환경변수 설정 예시
-├── 📄 .gitignore                   # Git 제외 파일 목록
+├── 📄 README.md                    # Project description and usage
+├── 📄 requirements.txt             # Python package dependencies
+├── 📄 .env.example                 # Environment variable setup example
+├── 📄 .gitignore                   # Git ignore file list
 │
-├── 🚀 app_interactive.py           # 메인 인터랙티브 앱
-├── 🧠 hybrid_predictor.py          # 핵심 예측 시스템
+├── 🚀 app_interactive.py           # Main interactive app
+├── 🧠 hybrid_predictor.py          # Core prediction system
 │
-├── 📊 train_delay_predictor.ipynb  # FT-Transformer 학습 노트북
-├── 📊 train_xgboost.ipynb          # XGBoost 학습 노트북
-├── 📊 flight_data_preprocessing.ipynb  # 데이터 전처리
+├── 📊 train_delay_predictor.ipynb  # FT-Transformer training notebook
+├── 📊 train_xgboost.ipynb          # XGBoost training notebook
+├── 📊 flight_data_preprocessing.ipynb  # Data preprocessing
 │
-├── 📂 utils/                       # 유틸리티 모듈
-│   ├── flight_status_checker.py   # 실시간 항공편 상태 (AviationStack API)
-│   ├── google_routes.py           # Google Routes API 클라이언트
-│   ├── weather_google.py          # Google Weather API 클라이언트
-│   ├── tsa_wait_time.py           # TSA 대기시간 통계
-│   ├── ticket_ocr.py              # 티켓 OCR (Ollama LLaVA)
-│   ├── real_flight_data.py        # 항공편 데이터 수집기
-│   └── generate_ticket_image.py   # 테스트 티켓 이미지 생성
+├── 📂 utils/                       # Utility modules
+│   ├── flight_status_checker.py   # Real-time flight status (AviationStack API)
+│   ├── google_routes.py           # Google Routes API client
+│   ├── weather_google.py          # Google Weather API client
+│   ├── tsa_wait_time.py           # TSA wait time statistics
+│   ├── ticket_ocr.py              # Ticket OCR (Ollama LLaVA)
+│   ├── real_flight_data.py        # Flight data collector
+│   └── generate_ticket_image.py   # Test ticket image generator
 │
-├── 📂 models/                      # 학습된 모델 (Git에 포함 안됨)
-│   ├── ft_transformer_full.pkl    # FT-Transformer 모델
-│   ├── delay_predictor_full.pkl   # 전처리 파이프라인
-│   └── xgboost_predictor.pkl      # XGBoost 모델 (선택사항)
+├── 📂 models/                      # Trained models (not included in Git)
+│   ├── ft_transformer_full.pkl    # FT-Transformer model
+│   ├── delay_predictor_full.pkl   # Preprocessing pipeline
+│   └── xgboost_predictor.pkl      # XGBoost model (optional)
 │
-├── 📂 data/                        # 데이터 파일 (대부분 Git에 포함 안됨)
-│   ├── flight_data_2024_sample.csv  # Kaggle 항공편 데이터
-│   ├── flights_20260205.json      # 크롤링된 실시간 항공편
-│   └── test_tickets_today.json    # 테스트용 항공편 정보
+├── 📂 data/                        # Data files (mostly not included in Git)
+│   ├── flight_data_2024_sample.csv  # Kaggle flight data
+│   ├── flights_20260205.json      # Crawled real-time flights
+│   └── test_tickets_today.json    # Test flight ticket info
 │
-└── 📂 test_tickets/                # 테스트용 티켓 이미지 (Git에 포함 안됨)
+└── 📂 test_tickets/                # Test ticket images (not included in Git)
     ├── ticket_1_QR2867.png
     ├── ticket_2_IB4967.png
     └── ...
 ```
 
-## 핵심 컴포넌트
+## Core Components
 
 ### 1. app_interactive.py
-- 사용자 인터페이스
-- 티켓 이미지 업로드 / 수동 입력
-- 위치, 교통수단, 수하물 정보 입력
-- 최종 추천 결과 출력
+- User interface
+- Ticket image upload / manual input
+- Input location, travel mode, and baggage info
+- Output final recommendation
 
 ### 2. hybrid_predictor.py
-- FT-Transformer 모델 로드
-- 실시간 API 통합
-- 지연 시간 예측
-- LLM 추천 생성
+- Load FT-Transformer model
+- Integrate real-time APIs
+- Predict delay time
+- Generate LLM recommendation
 
-### 3. utils/ 모듈
-각 API 및 기능별 독립적인 모듈로 구성
+### 3. utils/ module
+Composed of independent modules by API and feature.
 
-## 데이터 플로우
+## Data Flow
 
-1. **입력** → VLM OCR 또는 수동 입력
-2. **실시간 확인** → AviationStack API
-3. **AI 예측** → FT-Transformer (실시간 정보 없을 때)
-4. **날씨** → Google Weather API
-5. **교통** → Google Routes API
-6. **계산** → TSA + 수하물 + 게이트
-7. **출력** → Ollama LLM (한국어)
+1. **Input** -> VLM OCR or manual input
+2. **Real-time check** -> AviationStack API
+3. **AI prediction** -> FT-Transformer (when no real-time info)
+4. **Weather** -> Google Weather API
+5. **Traffic** -> Google Routes API
+6. **Calculation** -> TSA + baggage + gate
+7. **Output** -> Ollama LLM (Korean)
 
-## 모델 파일 (별도 다운로드 필요)
+## Model Files (Separate Download Required)
 
-Git에는 포함되지 않음 (용량 문제):
-- `ft_transformer_full.pkl` (약 50MB)
-- `delay_predictor_full.pkl` (약 10MB)
-- Ollama 모델: gpt-oss:120b (65GB), llava-phi3 (2.9GB)
+Not included in Git (size constraints):
+- `ft_transformer_full.pkl` (about 50MB)
+- `delay_predictor_full.pkl` (about 10MB)
+- Ollama models: gpt-oss:120b (65GB), llava-phi3 (2.9GB)
 
-## 데이터 파일
+## Data Files
 
-- `flight_data_2024_sample.csv`: Kaggle에서 다운로드
-- 나머지는 런타임에 생성됨
+- `flight_data_2024_sample.csv`: Download from Kaggle
+- Others are generated at runtime

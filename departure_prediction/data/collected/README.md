@@ -1,10 +1,10 @@
-# 출발 시간 예측 시스템
+# Departure Time Prediction System
 
-이 폴더는 수집된 데이터를 저장하는 공간입니다.
+This folder stores collected data.
 
-## 파일 형식
+## File Format
 
-데이터는 다음과 같은 CSV 형식으로 저장됩니다:
+Data is saved in the following CSV format:
 
 ```csv
 timestamp,terminal,wait_time,tsa_pre_wait_time
@@ -12,21 +12,21 @@ timestamp,terminal,wait_time,tsa_pre_wait_time
 2026-02-04T12:00:00,Terminal 4,20 mins,8 mins
 ```
 
-## 파일 명명 규칙
+## File Naming Rules
 
-- 단일 수집: `security_wait_YYYYMMDD_HHMMSS.csv`
-- 지속적 수집: `continuous_data_YYYYMMDD_HHMMSS.csv`
+- Single collection: `security_wait_YYYYMMDD_HHMMSS.csv`
+- Continuous collection: `continuous_data_YYYYMMDD_HHMMSS.csv`
 
-## 데이터 수집 방법
+## How to Collect Data
 
 ```bash
-# 상위 디렉토리에서 실행
+# Run from the parent directory
 python -m data.data_collector
 ```
 
-또는
+Or
 
 ```bash
-# main.py 사용
+# Use main.py
 python main.py collect --duration 24 --interval 15
 ```

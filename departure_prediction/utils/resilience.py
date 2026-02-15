@@ -1,6 +1,6 @@
 """
-Resilience Module - 시스템 복원력 강화
-API 실패 시 자동 폴백 및 복구 메커니즘
+Resilience Module - system reliability enhancements.
+Automatic fallback and recovery mechanisms when API calls fail.
 """
 from typing import Optional, Dict, Any, Callable
 from functools import wraps
@@ -9,18 +9,18 @@ from datetime import datetime
 
 
 class ResilienceConfig:
-    """복원력 설정"""
-    # Retry 설정
+    """Resilience settings."""
+    # Retry settings
     MAX_RETRIES = 3
     RETRY_DELAY = 1  # seconds
     EXPONENTIAL_BACKOFF = True
     
-    # Timeout 설정
+    # Timeout settings
     API_TIMEOUT = 30  # seconds
     
-    # Fallback 기본값
+    # Default fallback values
     DEFAULT_TRAVEL_TIME = 60  # minutes
-    DEFAULT_TSA_WAIT = 30  # minutes (일반)
+    DEFAULT_TSA_WAIT = 30  # minutes (normal)
     DEFAULT_TSA_WAIT_PRECHECK = 10  # minutes (PreCheck)
     DEFAULT_WEATHER_DELAY = 0  # minutes
     DEFAULT_GATE_WALK = 15  # minutes
@@ -29,11 +29,11 @@ class ResilienceConfig:
 
 def retry_with_exponential_backoff(max_retries=3, base_delay=1):
     """
-    API 호출 실패 시 지수 백오프로 재시도
+    Retry API calls with exponential backoff on failure.
     
     Args:
-        max_retries: 최대 재시도 횟수
-        base_delay: 기본 대기 시간 (초)
+        max_retries: Maximum retry attempts
+        base_delay: Base wait time in seconds
     """
     def decorator(func):
         @wraps(func)
@@ -47,14 +47,14 @@ def retry_with_exponential_backoff(max_retries=3, base_delay=1):
                     last_exception = e
                     
                     if attempt < max_retries - 1:
-                        # 지수 백오프 계산
+                        # Compute exponential backoff
                         delay = base_delay * (2 ** attempt)
                         print(f"   ⚠️ {func.__name__} failed (attempt {attempt + 1}/{max_retries}), retrying in {delay}s...")
                         time.sleep(delay)
                     else:
                         print(f"   ❌ {func.__name__} failed after {max_retries} attempts")
             
-            # 모든 재시도 실패 시 예외 발생
+            # Raise exception when all retries fail
             raise last_exception
         
         return wrapper
@@ -63,11 +63,11 @@ def retry_with_exponential_backoff(max_retries=3, base_delay=1):
 
 def fallback_on_error(fallback_value=None, fallback_func=None):
     """
-    에러 발생 시 fallback 값 또는 함수 반환
+    Return fallback value or fallback function output on error.
     
     Args:
-        fallback_value: 에러 시 반환할 기본값
-        fallback_func: 에러 시 실행할 fallback 함수
+        fallback_value: Default value to return on error
+        fallback_func: Fallback function to execute on error
     """
     def decorator(func):
         @wraps(func)
@@ -94,7 +94,7 @@ def fallback_on_error(fallback_value=None, fallback_func=None):
 
 class ResilientAPIWrapper:
     """
-    API 호출을 복원력 있게 감싸는 래퍼
+    Wrapper for resilient API calls.
     """
     
     @staticmethod
@@ -106,7 +106,7 @@ class ResilientAPIWrapper:
         error_message: str = "API call failed"
     ) -> Dict[str, Any]:
         """
-        안전한 API 호출 with retry + fallback
+        Safe API call with retry + fallback.
         
         Returns:
             {
@@ -134,7 +134,7 @@ class ResilientAPIWrapper:
                     print(f"   ⚠️ API call failed (attempt {attempt + 1}/{max_retries}), retrying in {delay}s...")
                     time.sleep(delay)
         
-        # 모든 재시도 실패 - fallback 사용
+        # All retries failed - use fallback
         print(f"   ❌ {error_message}: {last_exception}")
         print(f"   🔄 Using fallback value")
         
@@ -148,13 +148,13 @@ class ResilientAPIWrapper:
 
 def get_fallback_travel_time(travel_mode: str = 'DRIVE') -> Dict[str, Any]:
     """
-    교통 API 실패 시 평균 이동시간 반환
+    Return average travel time when traffic API fails.
     """
     fallback_times = {
-        'DRIVE': 60,      # 1시간
-        'TRANSIT': 90,    # 1.5시간
-        'WALK': 180,      # 3시간
-        'BICYCLE': 120    # 2시간
+        'DRIVE': 60,      # 1 hour
+        'TRANSIT': 90,    # 1.5 hours
+        'WALK': 180,      # 3 hours
+        'BICYCLE': 120    # 2 hours
     }
     
     minutes = fallback_times.get(travel_mode, 60)
@@ -162,7 +162,7 @@ def get_fallback_travel_time(travel_mode: str = 'DRIVE') -> Dict[str, Any]:
     return {
         'success': True,
         'duration_minutes': minutes,
-        'distance_km': 30,  # 추정
+        'distance_km': 30,  # Estimated
         'route': 'Fallback route (API unavailable)',
         'transit_details': None,
         'fallback_used': True
@@ -171,21 +171,21 @@ def get_fallback_travel_time(travel_mode: str = 'DRIVE') -> Dict[str, Any]:
 
 def get_fallback_tsa_wait(has_precheck: bool = False) -> int:
     """
-    TSA API 실패 시 평균 대기시간 반환
+    Return average TSA wait time when TSA API fails.
     """
     return ResilienceConfig.DEFAULT_TSA_WAIT_PRECHECK if has_precheck else ResilienceConfig.DEFAULT_TSA_WAIT
 
 
 def get_fallback_weather() -> Dict[str, Any]:
     """
-    날씨 API 실패 시 중립 날씨 정보 반환
+    Return neutral weather information when weather API fails.
     """
     return {
         'condition': 'Unknown',
         'description': 'Weather data unavailable',
         'temperature': 20,
         'wind_speed': 5,
-        'delay_risk': 'low',  # 보수적으로 낮음 설정
+        'delay_risk': 'low',  # Conservative low-risk default
         'warning': None,
         'airport': 'Unknown',
         'fallback_used': True
@@ -194,11 +194,11 @@ def get_fallback_weather() -> Dict[str, Any]:
 
 def get_fallback_flight_status() -> Dict[str, Any]:
     """
-    항공편 API 실패 시 기본 정보 반환
+    Return default flight information when flight API fails.
     """
     return {
         'status': 'scheduled',
-        'status_kr': '예정',
+        'status_kr': 'Scheduled',
         'is_delayed': False,
         'delay_minutes': 0,
         'scheduled_departure': None,
@@ -209,17 +209,17 @@ def get_fallback_flight_status() -> Dict[str, Any]:
 
 class HealthCheck:
     """
-    시스템 구성요소 상태 확인
+    Check system component status.
     """
     
     @staticmethod
     def check_model_loaded(model) -> bool:
-        """모델 로딩 상태 확인"""
+        """Check whether model is loaded."""
         return model is not None
     
     @staticmethod
     def check_api_availability(api_name: str, test_func: Callable) -> bool:
-        """API 가용성 테스트"""
+        """Test API availability."""
         try:
             result = test_func()
             return result is not None
@@ -230,7 +230,7 @@ class HealthCheck:
     @staticmethod
     def get_system_status(predictor) -> Dict[str, bool]:
         """
-        전체 시스템 상태 확인
+        Check overall system status.
         
         Returns:
             {
@@ -242,8 +242,8 @@ class HealthCheck:
         """
         status = {
             'model': HealthCheck.check_model_loaded(predictor.model),
-            'google_api': True,  # API 키 존재 여부로 판단
-            'ollama': True,      # Ollama 서버 연결 확인
+            'google_api': True,  # Determined by API key presence
+            'ollama': True,      # Check Ollama server connectivity
             'overall': True
         }
         
@@ -254,20 +254,20 @@ class HealthCheck:
 
 def validate_flight_info(flight_info: Dict[str, Any]) -> Dict[str, Any]:
     """
-    항공편 정보 유효성 검증 및 보정
+    Validate and normalize flight information.
     
     Returns:
-        검증되고 보정된 flight_info
+        Validated and normalized flight_info
     """
     validated = flight_info.copy()
     
-    # 필수 필드 확인
+    # Validate required fields
     required_fields = ['airline_code', 'flight_number', 'origin', 'dest', 'scheduled_time']
     for field in required_fields:
         if field not in validated or validated[field] is None:
             raise ValueError(f"Required field missing: {field}")
     
-    # Optional 필드 기본값 설정
+    # Set defaults for optional fields
     if 'has_checked_baggage' not in validated:
         validated['has_checked_baggage'] = False
     
@@ -275,12 +275,12 @@ def validate_flight_info(flight_info: Dict[str, Any]) -> Dict[str, Any]:
         validated['has_tsa_precheck'] = False
     
     if 'terminal' not in validated:
-        validated['terminal'] = 'Terminal 4'  # JFK 기본값
+        validated['terminal'] = 'Terminal 4'  # JFK default
     
     if 'gate' not in validated:
         validated['gate'] = None
     
-    # 날짜/시간 검증
+    # Validate date/time
     if not isinstance(validated['scheduled_time'], datetime):
         raise ValueError("scheduled_time must be a datetime object")
     
@@ -288,7 +288,7 @@ def validate_flight_info(flight_info: Dict[str, Any]) -> Dict[str, Any]:
 
 
 if __name__ == '__main__':
-    # 테스트
+    # Test
     print("=== Resilience Module Test ===\n")
     
     # 1. Retry test

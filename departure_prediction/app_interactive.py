@@ -9,7 +9,7 @@ from pathlib import Path
 
 sys.path.append(str(Path(__file__).parent))
 
-# LLM/VLM 선택: Gemini 또는 Ollama
+# LLM/VLM choice: Gemini or Ollama
 USE_GEMINI = os.getenv('USE_GEMINI', 'false').lower() == 'true'
 
 if USE_GEMINI:
@@ -134,7 +134,7 @@ def get_flight_info_manual():
         'arrival_airport': arrival_airport,
         'departure_time': departure_time_str,
         'terminal': None,
-        'has_checked_baggage': None,  # 나중에 입력받음
+        'has_checked_baggage': None,  # Filled in later
         'has_tsa_precheck': has_tsa
     }
 
@@ -194,12 +194,12 @@ def get_baggage_info(flight_data):
 
 
 def parse_flight_data(flight_data):
-    """항공편 데이터 파싱"""
-    # 항공편 번호에서 항공사 코드 추출
+    """Parse flight data."""
+    # Extract airline code from flight number
     flight_number = flight_data['flight_number']
     airline_code = ''.join([c for c in flight_number if c.isalpha()])
     
-    # 항공사 이름 매핑
+    # Map airline names
     airline_names = {
         'B6': 'JetBlue Airways',
         'AA': 'American Airlines',
@@ -209,15 +209,15 @@ def parse_flight_data(flight_data):
         'NK': 'Spirit Airlines',
         'F9': 'Frontier Airlines',
         'AS': 'Alaska Airlines',
-        'B': 'JetBlue Airways',  # 단축형
+        'B': 'JetBlue Airways',  # Short form
         'A': 'American Airlines'
     }
     
-    # 날짜 시간 파싱 (여러 형식 지원)
+    # Parse departure datetime (supports multiple formats)
     time_str = flight_data['departure_time']
     scheduled_time = None
     
-    # 시도할 날짜 형식들
+    # Candidate datetime formats
     time_formats = [
         '%Y-%m-%d %H:%M',
         '%Y-%m-%dT%H:%M',

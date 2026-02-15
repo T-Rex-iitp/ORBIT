@@ -90,7 +90,7 @@ ENGLISH_INTENT_KEYWORDS = [
 ]
 
 KOREAN_INTENT_KEYWORDS = [
-    "\uc5b8\uc81c\ucd9c\ubc1c\ud574\uc57c\ud574",  # 언제출발해야해
+    "\uc5b8\uc81c\ucd9c\ubc1c\ud574\uc57c\ud574",  # "when should I leave"
     "\uc5b8\uc81c \ucd9c\ubc1c\ud574\uc57c\ud574",
     "\uc5b8\uc81c\ucd9c\ubc1c",
     "\ucd9c\ubc1c\ud574\uc57c\ud574",
@@ -218,7 +218,7 @@ def _extract_time_from_query(query: str, now_local: datetime) -> Optional[dateti
                 dt += timedelta(days=1)
             return dt
 
-    # Korean style: 7시, 7시30, 7시 30분
+    # Korean style examples with hour/minute words
     k_match = re.search(r"\b(\d{1,2})\s*(?:\uC2DC)\s*(\d{0,2})\s*(?:\uBD84)?", query)
     if k_match:
         hour = int(k_match.group(1))

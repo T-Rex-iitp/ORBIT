@@ -1,6 +1,6 @@
 """
-Google Gemini API (Direct) Integration
-Vertex AI 대신 Google AI API 사용 (API Key 기반)
+Google Gemini API (Direct) integration.
+Uses Google AI API instead of Vertex AI (API key based).
 """
 import os
 import google.generativeai as genai
@@ -10,8 +10,8 @@ from PIL import Image as PILImage
 
 class GeminiDirectClient:
     """
-    Google Gemini API 클라이언트 (Direct API)
-    API Key만 있으면 바로 사용 가능 (Vertex AI 불필요)
+    Google Gemini API client (Direct API).
+    Works with only an API key (no Vertex AI required).
     """
     
     def __init__(
@@ -21,10 +21,10 @@ class GeminiDirectClient:
     ):
         """
         Args:
-            api_key: Google AI API Key (환경변수에서 자동 로드)
-            model_name: 모델 이름
-                - gemini-flash-latest: 빠르고 저렴 (추천)
-                - gemini-pro-latest: 더 정확, 더 비쌈
+            api_key: Google AI API key (auto-loaded from environment)
+            model_name: Model name
+                - gemini-flash-latest: Fast and low cost (recommended)
+                - gemini-pro-latest: More accurate, higher cost
         """
         self.api_key = api_key or os.getenv('GEMINI_API_KEY')
         self.model_name = model_name
@@ -32,10 +32,10 @@ class GeminiDirectClient:
         if not self.api_key:
             raise ValueError("GEMINI_API_KEY environment variable required")
         
-        # Gemini API 초기화
+        # Initialize Gemini API
         genai.configure(api_key=self.api_key)
         
-        # 모델 초기화
+        # Initialize model
         self.model = genai.GenerativeModel(model_name)
         
         print(f"✅ Gemini Direct API initialized: {model_name}")
@@ -47,15 +47,15 @@ class GeminiDirectClient:
         max_tokens: int = 1000
     ) -> str:
         """
-        텍스트 생성 (LLM)
+        Generate text (LLM).
         
         Args:
-            prompt: 입력 프롬프트
-            temperature: 창의성 (0.0~2.0)
-            max_tokens: 최대 토큰 수
+            prompt: Input prompt
+            temperature: Creativity (0.0~2.0)
+            max_tokens: Maximum output tokens
             
         Returns:
-            생성된 텍스트
+            Generated text
         """
         try:
             generation_config = genai.types.GenerationConfig(
@@ -80,20 +80,20 @@ class GeminiDirectClient:
         prompt: str = "Describe this image in detail."
     ) -> str:
         """
-        이미지 분석 (Vision)
+        Analyze image (Vision).
         
         Args:
-            image_path: 이미지 파일 경로
-            prompt: 분석 프롬프트
+            image_path: Image file path
+            prompt: Analysis prompt
             
         Returns:
-            분석 결과 텍스트
+            Analysis result text
         """
         try:
-            # 이미지 로드
+            # Load image
             image = PILImage.open(image_path)
             
-            # 이미지 + 프롬프트로 분석
+            # Analyze with image + prompt
             response = self.model.generate_content([prompt, image])
             
             return response.text
@@ -107,13 +107,13 @@ class GeminiDirectClient:
         image_path: str
     ) -> Dict[str, Any]:
         """
-        항공권 이미지에서 정보 추출
+        Extract information from an airline ticket image.
         
         Args:
-            image_path: 항공권 이미지 경로
+            image_path: Airline ticket image path
             
         Returns:
-            추출된 정보 딕셔너리
+            Extracted info dictionary
         """
         prompt = """
         Extract flight information from this airline ticket image.
@@ -138,19 +138,19 @@ class GeminiDirectClient:
         try:
             result_text = self.analyze_image(image_path, prompt)
             
-            # JSON 추출 (```json ... ``` 제거)
+            # Extract JSON (remove ```json ... ```)
             import json
             import re
             
-            # JSON 블록 찾기
+            # Find JSON block
             json_match = re.search(r'```json\s*(.*?)\s*```', result_text, re.DOTALL)
             if json_match:
                 json_str = json_match.group(1)
             else:
-                # 블록 없이 바로 JSON
+                # Raw JSON without fenced block
                 json_str = result_text
             
-            # JSON 파싱
+            # Parse JSON
             ticket_info = json.loads(json_str.strip())
             
             print(f"✅ Ticket info extracted: {ticket_info.get('flight_number', 'N/A')}")
@@ -169,17 +169,17 @@ class GeminiDirectClient:
         predicted_delay_minutes: int
     ) -> str:
         """
-        출발 시간 추천 생성
+        Generate departure-time recommendation.
         
         Args:
-            flight_info: 항공편 정보
-            travel_time_minutes: 공항까지 이동 시간 (분)
-            tsa_wait_minutes: TSA 대기 시간 (분)
-            weather_condition: 날씨 상태
-            predicted_delay_minutes: 예상 지연 시간 (분)
+            flight_info: Flight information
+            travel_time_minutes: Travel time to airport (minutes)
+            tsa_wait_minutes: TSA wait time (minutes)
+            weather_condition: Weather condition
+            predicted_delay_minutes: Predicted delay (minutes)
             
         Returns:
-            자연어 추천 텍스트
+            Natural-language recommendation text
         """
         prompt = f"""
         You are a helpful travel assistant. Generate a departure recommendation for a passenger.
@@ -217,33 +217,33 @@ class GeminiDirectClient:
 
 class GeminiTicketOCR:
     """
-    TicketOCR 호환 클래스 (drop-in replacement)
-    기존 코드에서 바로 사용 가능
+    TicketOCR-compatible class (drop-in replacement).
+    Can be used immediately in existing code.
     """
     
     def __init__(self, api_key: Optional[str] = None):
         self.client = GeminiDirectClient(api_key=api_key)
     
     def extract_with_vision(self, image_path: str) -> Dict[str, Any]:
-        """TicketOCR.extract_with_vision() 호환 메서드"""
+        """Compatible method for TicketOCR.extract_with_vision()."""
         return self.client.extract_ticket_info(image_path)
 
 
-# 테스트 코드
+# Test code
 if __name__ == "__main__":
     import sys
     
-    # API Key 확인
+    # Check API key
     api_key = os.getenv('GEMINI_API_KEY')
     if not api_key:
         print("❌ GEMINI_API_KEY not set")
         print("Set it with: export GEMINI_API_KEY=your-api-key")
         sys.exit(1)
     
-    # 클라이언트 초기화
+    # Initialize client
     client = GeminiDirectClient(api_key=api_key)
     
-    # 텍스트 생성 테스트
+    # Text generation test
     print("\n=== Text Generation Test ===")
     response = client.generate_text("Say hello in 5 words")
     print(f"Response: {response}")

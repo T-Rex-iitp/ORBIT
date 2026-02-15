@@ -1,9 +1,9 @@
 """
-운항 컨텍스트 기반 보정 요인
+Operational-context adjustment factors.
 
 Use cases:
-1) JFK 50마일 권역 혼잡도 추정
-2) 동일 항공기(또는 동일 편명) 직전 편 지연 반영
+1) Estimate congestion within a 50-mile radius of JFK
+2) Reflect delay propagation from the previous leg of the same aircraft (or flight number)
 """
 
 from __future__ import annotations
@@ -17,7 +17,7 @@ import requests
 
 AVIATIONSTACK_URL = "http://api.aviationstack.com/v1/flights"
 
-# JFK 반경 50마일 이내 주요 상업/운항 공항
+# Major commercial/operational airports within 50 miles of JFK
 JFK_50_MILE_AIRPORTS: List[str] = [
     "JFK",  # John F. Kennedy
     "LGA",  # LaGuardia
@@ -30,7 +30,7 @@ JFK_50_MILE_AIRPORTS: List[str] = [
 
 
 def _parse_iso_datetime(value: Optional[str]) -> Optional[datetime]:
-    """AviationStack ISO datetime 파싱 (실패 시 None)."""
+    """Parse an AviationStack ISO datetime string (returns None on failure)."""
     if not value:
         return None
     try:
@@ -40,7 +40,7 @@ def _parse_iso_datetime(value: Optional[str]) -> Optional[datetime]:
 
 
 def _safe_delay_minutes(raw_delay: Optional[object]) -> int:
-    """지연 값을 정수 분으로 정규화."""
+    """Normalize delay value to integer minutes."""
     if raw_delay is None:
         return 0
     try:
@@ -50,7 +50,7 @@ def _safe_delay_minutes(raw_delay: Optional[object]) -> int:
 
 
 class OperationalFactorsAnalyzer:
-    """운항 컨텍스트(혼잡도 + 직전편 지연) 분석기."""
+    """Operational context analyzer (congestion + previous-leg delay)."""
 
     def __init__(self, api_key: Optional[str] = None):
         self.api_key = api_key or os.getenv("AVIATIONSTACK_API_KEY")
@@ -71,7 +71,8 @@ class OperationalFactorsAnalyzer:
 
     def get_jfk_area_congestion(self, reference_time: datetime) -> Dict:
         """
-        JFK 50마일 권역 공항의 지연 비율/평균 지연 기반 혼잡도 산출.
+        Compute congestion score using delay ratio and average delay
+        across airports within 50 miles of JFK.
 
         Returns:
             {
@@ -99,7 +100,7 @@ class OperationalFactorsAnalyzer:
         delays: List[int] = []
         delayed_count = 0
 
-        # 무료 티어 제한 고려: 공항별 10건 샘플
+        # Consider free-tier limits: sample 10 records per airport
         for airport in JFK_50_MILE_AIRPORTS:
             try:
                 flights = self._fetch_flights(dep_iata=airport, limit=10)
@@ -110,7 +111,7 @@ class OperationalFactorsAnalyzer:
                 dep = flight.get("departure", {})
                 scheduled_dt = _parse_iso_datetime(dep.get("scheduled"))
 
-                # 기준 시각 기준 ±3시간 이내 출발편만 반영
+                # Include only departures within +/-3 hours of the reference time
                 if scheduled_dt:
                     gap_hours = abs((scheduled_dt - reference_time).total_seconds()) / 3600
                     if gap_hours > 3:
@@ -137,7 +138,7 @@ class OperationalFactorsAnalyzer:
         avg_delay = sum(delays) / sample_size
         delayed_ratio = delayed_count / sample_size
 
-        # 혼잡도 점수: 지연율 70% + 평균지연(30분 캡) 30%
+        # Congestion score: 70% delay rate + 30% average delay (capped at 30 min)
         normalized_avg = min(avg_delay / 30.0, 1.0)
         score = 0.7 * delayed_ratio + 0.3 * normalized_avg
 
@@ -163,10 +164,10 @@ class OperationalFactorsAnalyzer:
 
     def get_previous_leg_delay(self, flight_number: str, scheduled_time: datetime) -> Dict:
         """
-        대상 항공편의 직전 편 지연(턴어라운드 리스크) 추정.
-        우선순위:
-          1) 동일 항공기 등록번호(aircraft.registration) 기준 직전편
-          2) 동일 편명의 과거 기록 중 직전 출발편
+        Estimate previous-leg delay (turnaround risk) for the target flight.
+        Priority:
+          1) Previous leg by same aircraft registration (aircraft.registration)
+          2) Most recent departure in same flight-number history
         """
         if not self.api_key:
             return {
@@ -217,7 +218,7 @@ class OperationalFactorsAnalyzer:
                 "source": "invalid_records",
             }
 
-        # 현재 예약 시각 이전 레코드만 후보
+        # Candidate records must be before current booking time
         candidates = [x for x in enriched if x["scheduled"] < scheduled_time]
         if not candidates:
             return {
@@ -229,7 +230,7 @@ class OperationalFactorsAnalyzer:
         candidates.sort(key=lambda x: x["scheduled"], reverse=True)
         best = candidates[0]
 
-        # 지연 반영: 직전편 지연의 50%를 전이(최대 30분)
+        # Propagate delay: transfer 50% of prior-leg delay (max 30 min)
         propagated_delay = max(0, min(int(best["delay"] * 0.5), 30))
 
         return {
@@ -241,4 +242,3 @@ class OperationalFactorsAnalyzer:
             "route": f"{best.get('origin', 'N/A')}-{best.get('dest', 'N/A')}",
             "aircraft_registration": best.get("aircraft_registration"),
         }
-

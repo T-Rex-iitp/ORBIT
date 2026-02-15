@@ -1,6 +1,6 @@
 """
-데이터 전처리 모듈
-수집된 데이터를 Transformer 모델 학습에 적합한 형태로 변환
+Data preprocessing module.
+Transforms collected data into a format suitable for Transformer model training.
 """
 import pandas as pd
 import numpy as np
@@ -10,35 +10,35 @@ import os
 
 
 class DepartureDataPreprocessor:
-    """출발 시간 예측을 위한 데이터 전처리 클래스"""
+    """Data preprocessor for departure-time prediction."""
     
     def __init__(self, sequence_length: int = 24):
         """
         Args:
-            sequence_length: 시계열 시퀀스 길이 (기본 24시간)
+            sequence_length: Time-series sequence length (default: 24 hours).
         """
         self.sequence_length = sequence_length
         
     def parse_wait_time(self, wait_time_str: str) -> int:
         """
-        대기 시간 문자열을 분(minute)으로 변환
+        Convert a wait-time string to minutes.
         
         Args:
-            wait_time_str: "15 mins", "1 hour", "< 5 mins" 등의 문자열
+            wait_time_str: A string such as "15 mins", "1 hour", or "< 5 mins"
             
         Returns:
-            int: 대기 시간 (분)
+            int: Wait time in minutes.
         """
         if pd.isna(wait_time_str) or wait_time_str == '':
             return 0
         
         wait_time_str = wait_time_str.lower().strip()
         
-        # "< X mins" 형태 처리
+        # Handle "< X mins" format
         if '<' in wait_time_str:
             wait_time_str = wait_time_str.replace('<', '').strip()
         
-        # 시간(hour) 단위 처리
+        # Handle hour units
         if 'hour' in wait_time_str:
             try:
                 hours = int(''.join(filter(str.isdigit, wait_time_str.split('hour')[0])))
@@ -46,7 +46,7 @@ class DepartureDataPreprocessor:
             except:
                 return 0
         
-        # 분(mins) 단위 처리
+        # Handle minute units
         elif 'min' in wait_time_str:
             try:
                 mins = int(''.join(filter(str.isdigit, wait_time_str.split('min')[0])))
@@ -54,7 +54,7 @@ class DepartureDataPreprocessor:
             except:
                 return 0
         
-        # 숫자만 있는 경우
+        # Handle numeric-only values
         try:
             return int(''.join(filter(str.isdigit, wait_time_str)))
         except:
@@ -62,13 +62,13 @@ class DepartureDataPreprocessor:
     
     def extract_time_features(self, timestamp: pd.Timestamp) -> dict:
         """
-        타임스탬프에서 시간 관련 특성 추출
+        Extract time-related features from a timestamp.
         
         Args:
             timestamp: pandas Timestamp
             
         Returns:
-            dict: 시간 특성 (hour, day_of_week, is_weekend, etc.)
+            dict: Time features (hour, day_of_week, is_weekend, etc.)
         """
         return {
             'hour': timestamp.hour,
@@ -84,33 +84,33 @@ class DepartureDataPreprocessor:
     
     def load_and_preprocess(self, csv_path: str) -> pd.DataFrame:
         """
-        CSV 파일을 로드하고 전처리
+        Load and preprocess a CSV file.
         
         Args:
-            csv_path: CSV 파일 경로
+            csv_path: Path to the CSV file.
             
         Returns:
-            pd.DataFrame: 전처리된 데이터프레임
+            pd.DataFrame: Preprocessed DataFrame.
         """
-        # CSV 로드
+        # Load CSV
         df = pd.read_csv(csv_path)
         
-        # 타임스탬프 파싱
+        # Parse timestamps
         df['timestamp'] = pd.to_datetime(df['timestamp'])
         
-        # 대기 시간 파싱
+        # Parse wait times
         df['wait_time_mins'] = df['wait_time'].apply(self.parse_wait_time)
         
-        # TSA Pre 대기 시간 파싱 (있는 경우)
+        # Parse TSA Pre wait times (if available)
         if 'tsa_pre_wait_time' in df.columns:
             df['tsa_pre_wait_time_mins'] = df['tsa_pre_wait_time'].apply(self.parse_wait_time)
         
-        # 시간 특성 추출
+        # Extract time features
         time_features = df['timestamp'].apply(self.extract_time_features)
         time_features_df = pd.DataFrame(list(time_features))
         df = pd.concat([df, time_features_df], axis=1)
         
-        # 정렬
+        # Sort
         df = df.sort_values('timestamp').reset_index(drop=True)
         
         return df
@@ -119,22 +119,22 @@ class DepartureDataPreprocessor:
                         feature_columns: List[str],
                         target_column: str = 'wait_time_mins') -> Tuple[np.ndarray, np.ndarray]:
         """
-        시계열 시퀀스 데이터 생성
+        Create time-series sequence data.
         
         Args:
-            df: 전처리된 데이터프레임
-            feature_columns: 입력 특성 컬럼 리스트
-            target_column: 예측 대상 컬럼
+            df: Preprocessed DataFrame.
+            feature_columns: List of input feature columns.
+            target_column: Target column for prediction.
             
         Returns:
-            Tuple[np.ndarray, np.ndarray]: (X, y) - 입력 시퀀스, 타겟 값
+            Tuple[np.ndarray, np.ndarray]: (X, y) - input sequences and target values.
         """
         X, y = [], []
         
         for i in range(len(df) - self.sequence_length):
-            # 과거 sequence_length 시간의 데이터를 입력으로 사용
+            # Use the previous `sequence_length` hours as input
             sequence = df.iloc[i:i+self.sequence_length][feature_columns].values
-            # 다음 시점의 대기 시간을 예측 타겟으로 사용
+            # Use the next time step's wait time as the prediction target
             target = df.iloc[i+self.sequence_length][target_column]
             
             X.append(sequence)
@@ -144,20 +144,20 @@ class DepartureDataPreprocessor:
     
     def normalize_features(self, X: np.ndarray) -> Tuple[np.ndarray, dict]:
         """
-        특성 정규화
+        Normalize features.
         
         Args:
-            X: 입력 데이터
+            X: Input data.
             
         Returns:
-            Tuple[np.ndarray, dict]: 정규화된 데이터, 정규화 파라미터
+            Tuple[np.ndarray, dict]: Normalized data and normalization parameters.
         """
-        # 각 특성별 평균과 표준편차 계산
+        # Compute per-feature mean and standard deviation
         mean = np.mean(X, axis=(0, 1))
         std = np.std(X, axis=(0, 1))
-        std[std == 0] = 1  # 0으로 나누기 방지
+        std[std == 0] = 1  # Prevent division by zero
         
-        # 정규화
+        # Normalize
         X_normalized = (X - mean) / std
         
         normalization_params = {
@@ -171,37 +171,37 @@ class DepartureDataPreprocessor:
                             train_ratio: float = 0.7,
                             val_ratio: float = 0.15) -> dict:
         """
-        학습을 위한 전체 데이터 준비
+        Prepare full dataset for training.
         
         Args:
-            csv_path: CSV 파일 경로
-            train_ratio: 학습 데이터 비율
-            val_ratio: 검증 데이터 비율
+            csv_path: Path to the CSV file.
+            train_ratio: Training split ratio.
+            val_ratio: Validation split ratio.
             
         Returns:
-            dict: 학습/검증/테스트 데이터 및 메타정보
+            dict: Train/validation/test data and metadata.
         """
-        # 데이터 로드 및 전처리
+        # Load and preprocess data
         df = self.load_and_preprocess(csv_path)
         
-        # 특성 컬럼 선택
+        # Select feature columns
         feature_columns = [
             'wait_time_mins',
             'hour', 'day_of_week', 'is_weekend',
             'hour_sin', 'hour_cos', 'day_sin', 'day_cos'
         ]
         
-        # TSA Pre 시간이 있으면 추가
+        # Add TSA Pre time if available
         if 'tsa_pre_wait_time_mins' in df.columns:
             feature_columns.append('tsa_pre_wait_time_mins')
         
-        # 시퀀스 생성
+        # Create sequences
         X, y = self.create_sequences(df, feature_columns)
         
-        # 정규화
+        # Normalize
         X_normalized, norm_params = self.normalize_features(X)
         
-        # 데이터 분할
+        # Split data
         n_samples = len(X_normalized)
         train_size = int(n_samples * train_ratio)
         val_size = int(n_samples * val_ratio)
@@ -215,10 +215,10 @@ class DepartureDataPreprocessor:
         X_test = X_normalized[train_size+val_size:]
         y_test = y[train_size+val_size:]
         
-        print(f"✓ 데이터 준비 완료:")
-        print(f"  - 학습: {X_train.shape}")
-        print(f"  - 검증: {X_val.shape}")
-        print(f"  - 테스트: {X_test.shape}")
+        print(f"✓ Data preparation complete:")
+        print(f"  - Train: {X_train.shape}")
+        print(f"  - Validation: {X_val.shape}")
+        print(f"  - Test: {X_test.shape}")
         
         return {
             'X_train': X_train,
@@ -234,20 +234,20 @@ class DepartureDataPreprocessor:
 
 
 def main():
-    """테스트 실행"""
+    """Run a quick test."""
     preprocessor = DepartureDataPreprocessor(sequence_length=24)
     
-    # 예제 데이터 경로 (실제 파일 경로로 변경 필요)
+    # Example data path (replace with an actual file path)
     csv_path = "collected/continuous_data_20260204_120000.csv"
     
     if os.path.exists(csv_path):
         data = preprocessor.prepare_for_training(csv_path)
-        print("\n데이터 형태:")
-        print(f"입력 시퀀스: {data['X_train'].shape}")
-        print(f"타겟: {data['y_train'].shape}")
+        print("\nData shapes:")
+        print(f"Input sequence: {data['X_train'].shape}")
+        print(f"Target: {data['y_train'].shape}")
     else:
-        print(f"⚠️  파일을 찾을 수 없습니다: {csv_path}")
-        print("먼저 data_collector.py를 실행하여 데이터를 수집하세요.")
+        print(f"⚠️  File not found: {csv_path}")
+        print("Run data_collector.py first to collect data.")
 
 
 if __name__ == "__main__":

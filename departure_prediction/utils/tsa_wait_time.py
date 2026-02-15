@@ -1,12 +1,12 @@
 """
-TSA 보안검색 대기시간 실시간 크롤링 및 통계 기반 예측
+TSA security wait-time lookup using live crawling and statistical fallback.
 """
 from datetime import datetime
 from typing import Dict, Optional
 import re
 
 
-# 공항별 통계 대기시간
+# Statistical wait times by airport
 TSA_WAIT_TIMES = {
     'JFK': {
         'peak': 45,
@@ -30,13 +30,13 @@ TSA_WAIT_TIMES = {
 
 
 class TSAWaitTime:
-    """TSA 보안검색 대기시간 조회"""
+    """TSA security wait-time provider."""
     
     def __init__(self, use_live_data: bool = True):
         self.use_live_data = use_live_data
     
     def _crawl_jfk_tsa(self) -> Optional[Dict[str, int]]:
-        """JFK 실시간 TSA 대기시간 크롤링"""
+        """Crawl real-time TSA wait times for JFK."""
         try:
             from selenium import webdriver
             from selenium.webdriver.chrome.options import Options
@@ -52,7 +52,7 @@ class TSAWaitTime:
             options.add_argument("--disable-dev-shm-usage")
             options.add_argument("--disable-gpu")
             
-            # Chrome 경로
+            # Chrome path
             chrome_bin = os.path.expanduser("~/chrome_install/opt/google/chrome/chrome")
             driver_path = os.path.expanduser("~/chrome_install/chromedriver-linux64/chromedriver")
             
@@ -90,19 +90,19 @@ class TSAWaitTime:
             return None
     
     def get_wait_time(self, airport_code: str, departure_time: datetime, terminal: Optional[str] = None) -> Dict:
-        """TSA 대기시간 조회
+        """Get TSA wait time.
         
         Args:
-            airport_code: 공항 코드 (예: JFK)
-            departure_time: 출발 시간
-            terminal: 터미널 번호/이름 (예: "Terminal 5", "5", None)
+            airport_code: Airport code (e.g., JFK)
+            departure_time: Departure time
+            terminal: Terminal number/name (e.g., "Terminal 5", "5", None)
         """
-        # JFK 실시간 크롤링 시도
+        # Try real-time crawling for JFK
         if airport_code == 'JFK' and self.use_live_data:
             live_data = self._crawl_jfk_tsa()
             if live_data:
                 print(f"   🔍 Live TSA data crawled: {live_data}")
-                # 터미널 정보가 있으면 해당 터미널 대기시간 사용
+                # Use terminal-specific wait time when terminal info is provided
                 if terminal:
                     # "Terminal 5" -> "Terminal 5", "5" -> "Terminal 5"
                     term_key = terminal if "Terminal" in terminal else f"Terminal {terminal}"
@@ -111,11 +111,11 @@ class TSAWaitTime:
                         wait_time = live_data[term_key]
                         print(f"   ✅ Using {term_key} specific TSA wait time: {wait_time} min")
                     else:
-                        # 정확한 터미널을 못 찾으면 평균 사용
+                        # Use average if exact terminal is not found
                         wait_time = int(sum(live_data.values()) / len(live_data))
                         print(f"   ⚠️ {term_key} not found in {list(live_data.keys())}, using average: {wait_time} min")
                 else:
-                    # 터미널 정보 없으면 평균
+                    # Use average if terminal info is missing
                     wait_time = int(sum(live_data.values()) / len(live_data))
                     print(f"   ⚠️ No terminal specified, using average: {wait_time} min")
                 
@@ -138,7 +138,7 @@ class TSAWaitTime:
             else:
                 print(f"   ⚠️ TSA crawling failed, using historical statistics")
         
-        # 통계 기반
+        # Statistics-based fallback
         print(f"   📊 Using TSA statistics for {airport_code}")
         stats = TSA_WAIT_TIMES.get(airport_code, TSA_WAIT_TIMES['DEFAULT'])
         hour = departure_time.hour
@@ -154,7 +154,7 @@ class TSAWaitTime:
         else:
             period = 'normal' if 9 <= hour < 14 else 'off_peak'
         
-        # 공휴일 체크
+        # Check holidays
         month, day = departure_time.month, departure_time.day
         if self._is_holiday_season(month, day):
             period = 'holiday_peak'
@@ -167,20 +167,20 @@ class TSAWaitTime:
         }
     
     def _is_holiday_season(self, month: int, day: int) -> bool:
-        """공휴일 시즌 판단"""
-        # 추수감사절 (11월 넷째 목요일 전후)
+        """Determine whether it is holiday season."""
+        # Thanksgiving period (around the 4th Thursday of November)
         if month == 11 and 20 <= day <= 30:
             return True
-        # 크리스마스/신년 (12월 20일 - 1월 5일)
+        # Christmas/New Year period (Dec 20 - Jan 5)
         if (month == 12 and day >= 20) or (month == 1 and day <= 5):
             return True
-        # 여름 성수기 (6/15 - 8/15)
+        # Summer peak season (Jun 15 - Aug 15)
         if (month == 7) or (month == 6 and day >= 15) or (month == 8 and day <= 15):
             return True
         return False
     
     def get_precheck_wait_time(self, airport_code: str, departure_time: datetime, terminal: Optional[str] = None) -> Dict:
-        """TSA PreCheck 대기시간 (일반의 35%)"""
+        """TSA PreCheck wait time (35% of regular wait)."""
         regular = self.get_wait_time(airport_code, departure_time, terminal)
         precheck_wait = max(5, int(regular['wait_time'] * 0.35))
         
@@ -196,14 +196,14 @@ class TSAWaitTime:
 def get_tsa_wait_time(airport_code: str, departure_time: datetime, 
                       has_precheck: bool = False, use_live_data: bool = True, 
                       terminal: Optional[str] = None) -> int:
-    """편의 함수: TSA 대기시간 반환
+    """Convenience function: return TSA wait time.
     
     Args:
-        airport_code: 공항 코드
-        departure_time: 출발 시간
-        has_precheck: TSA PreCheck 소지 여부
-        use_live_data: 실시간 크롤링 사용 여부
-        terminal: 터미널 번호/이름 (예: "Terminal 5", "5")
+        airport_code: Airport code
+        departure_time: Departure time
+        has_precheck: Whether traveler has TSA PreCheck
+        use_live_data: Whether to use live crawling
+        terminal: Terminal number/name (e.g., "Terminal 5", "5")
     """
     tsa = TSAWaitTime(use_live_data=use_live_data)
     
@@ -216,14 +216,14 @@ def get_tsa_wait_time(airport_code: str, departure_time: datetime,
 
 
 if __name__ == '__main__':
-    print("=== 실시간 크롤링 테스트 ===")
+    print("=== Real-time Crawling Test ===")
     tsa_live = TSAWaitTime(use_live_data=True)
     dt = datetime.now()
     result = tsa_live.get_wait_time('JFK', dt)
-    print(f"JFK 실시간: {result}")
+    print(f"JFK live: {result}")
     
-    print("\n=== 통계 데이터 테스트 ===")
+    print("\n=== Statistical Data Test ===")
     tsa_stat = TSAWaitTime(use_live_data=False)
     dt = datetime(2026, 2, 10, 7, 0)
     result = tsa_stat.get_wait_time('JFK', dt)
-    print(f"JFK 평일 7am (통계): {result}")
+    print(f"JFK weekday 7am (stats): {result}")

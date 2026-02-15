@@ -1,6 +1,6 @@
 """
-Cache Module - 서버 장애 시에도 시스템 작동 보장
-API 응답 캐싱 및 로컬 폴백 데이터 관리
+Cache Module - keeps the system running even during server outages.
+Manages API response caching and local fallback data.
 """
 import json
 import pickle
@@ -12,44 +12,44 @@ import hashlib
 
 class CacheManager:
     """
-    API 응답 캐싱 및 폴백 관리
-    서버가 죽어도 이전 데이터로 계속 작동
+    API response caching and fallback management.
+    Keeps the system running with previous data even when servers are down.
     """
     
     def __init__(self, cache_dir: str = "cache"):
         self.cache_dir = Path(cache_dir)
         self.cache_dir.mkdir(exist_ok=True)
         
-        # 캐시 유효 기간 설정
+        # Cache TTL settings
         self.ttl = {
-            'flight_status': timedelta(minutes=10),  # 항공편 상태: 10분
-            'fr24_adsb_delay': timedelta(minutes=10),# FR24+ADS-B 이전편 지연: 10분
-            'weather': timedelta(hours=1),           # 날씨: 1시간
-            'tsa_wait': timedelta(hours=2),          # TSA 대기: 2시간
-            'travel_time': timedelta(hours=6),       # 교통 시간: 6시간
-            'airline_data': timedelta(days=30),      # 항공사 정보: 30일
-            'airport_data': timedelta(days=90),      # 공항 정보: 90일
+            'flight_status': timedelta(minutes=10),  # Flight status: 10 min
+            'fr24_adsb_delay': timedelta(minutes=10),# FR24+ADS-B prior-leg delay: 10 min
+            'weather': timedelta(hours=1),           # Weather: 1 hour
+            'tsa_wait': timedelta(hours=2),          # TSA wait: 2 hours
+            'travel_time': timedelta(hours=6),       # Travel time: 6 hours
+            'airline_data': timedelta(days=30),      # Airline info: 30 days
+            'airport_data': timedelta(days=90),      # Airport info: 90 days
         }
     
     def _get_cache_key(self, category: str, **kwargs) -> str:
-        """캐시 키 생성"""
-        # 파라미터를 정렬하여 일관된 키 생성
+        """Generate a cache key."""
+        # Sort parameters to generate a consistent key
         params = "_".join([f"{k}={v}" for k, v in sorted(kwargs.items())])
         key = f"{category}_{params}"
-        # 파일 시스템 안전을 위해 해시
+        # Hash for filesystem-safe key
         return hashlib.md5(key.encode()).hexdigest()
     
     def _get_cache_path(self, cache_key: str) -> Path:
-        """캐시 파일 경로"""
+        """Return cache file path."""
         return self.cache_dir / f"{cache_key}.json"
     
     def get(self, category: str, **kwargs) -> Optional[Dict[str, Any]]:
         """
-        캐시에서 데이터 조회
+        Read data from cache.
         
         Returns:
-            None: 캐시 없음 또는 만료됨
-            Dict: 캐시된 데이터
+            None: Cache missing or expired.
+            Dict: Cached data.
         """
         cache_key = self._get_cache_key(category, **kwargs)
         cache_path = self._get_cache_path(cache_key)
@@ -61,12 +61,12 @@ class CacheManager:
             with open(cache_path, 'r') as f:
                 cached = json.load(f)
             
-            # 만료 확인
+            # Check expiration
             cached_time = datetime.fromisoformat(cached['timestamp'])
             ttl = self.ttl.get(category, timedelta(hours=1))
             
             if datetime.now() - cached_time > ttl:
-                # 만료됨
+                # Expired
                 return None
             
             return cached['data']
@@ -77,7 +77,7 @@ class CacheManager:
     
     def set(self, category: str, data: Any, **kwargs):
         """
-        캐시에 데이터 저장
+        Store data in cache.
         """
         cache_key = self._get_cache_key(category, **kwargs)
         cache_path = self._get_cache_path(cache_key)
@@ -98,11 +98,11 @@ class CacheManager:
     
     def get_stale(self, category: str, **kwargs) -> Optional[Dict[str, Any]]:
         """
-        만료된 캐시라도 반환 (서버 장애 시 사용)
+        Return stale cache if available (used during server outages).
         
         Returns:
-            None: 캐시 없음
-            Dict: 캐시된 데이터 (만료되었어도 반환)
+            None: No cache.
+            Dict: Cached data (returned even if expired).
         """
         cache_key = self._get_cache_key(category, **kwargs)
         cache_path = self._get_cache_path(cache_key)
@@ -125,9 +125,9 @@ class CacheManager:
             return None
     
     def clear(self, category: Optional[str] = None):
-        """캐시 삭제"""
+        """Clear cache."""
         if category:
-            # 특정 카테고리만 삭제
+            # Delete only a specific category
             for cache_file in self.cache_dir.glob("*.json"):
                 try:
                     with open(cache_file, 'r') as f:
@@ -137,15 +137,15 @@ class CacheManager:
                 except:
                     pass
         else:
-            # 전체 삭제
+            # Delete all
             for cache_file in self.cache_dir.glob("*.json"):
                 cache_file.unlink()
 
 
 class HistoricalDataFallback:
     """
-    과거 데이터 기반 폴백
-    서버가 완전히 죽었을 때 사용할 통계 데이터
+    Historical-data fallback.
+    Statistical data used when upstream servers are completely unavailable.
     """
     
     def __init__(self, data_file: str = "cache/historical_data.pkl"):
@@ -154,7 +154,7 @@ class HistoricalDataFallback:
         self.historical_data = self._load_data()
     
     def _load_data(self) -> Dict:
-        """저장된 통계 데이터 로드"""
+        """Load saved statistical data."""
         if self.data_file.exists():
             try:
                 with open(self.data_file, 'rb') as f:
@@ -162,7 +162,7 @@ class HistoricalDataFallback:
             except:
                 pass
         
-        # 기본 통계 데이터
+        # Default statistical data
         return {
             'flight_delays': {},      # {airline_code: {route: avg_delay}}
             'tsa_wait_times': {},     # {airport: {hour: avg_wait}}
@@ -171,7 +171,7 @@ class HistoricalDataFallback:
         }
     
     def _save_data(self):
-        """통계 데이터 저장"""
+        """Save statistical data."""
         try:
             with open(self.data_file, 'wb') as f:
                 pickle.dump(self.historical_data, f)
@@ -179,7 +179,7 @@ class HistoricalDataFallback:
             print(f"   ⚠️ Failed to save historical data: {e}")
     
     def update_flight_delay(self, airline: str, route: str, delay: float):
-        """항공편 지연 통계 업데이트"""
+        """Update flight-delay statistics."""
         if airline not in self.historical_data['flight_delays']:
             self.historical_data['flight_delays'][airline] = {}
         
@@ -188,7 +188,7 @@ class HistoricalDataFallback:
         
         self.historical_data['flight_delays'][airline][route].append(delay)
         
-        # 최근 100개만 유지
+        # Keep only the most recent 100 entries
         if len(self.historical_data['flight_delays'][airline][route]) > 100:
             self.historical_data['flight_delays'][airline][route] = \
                 self.historical_data['flight_delays'][airline][route][-100:]
@@ -196,15 +196,15 @@ class HistoricalDataFallback:
         self._save_data()
     
     def get_avg_flight_delay(self, airline: str, route: str) -> float:
-        """평균 항공편 지연 시간"""
+        """Get average flight delay."""
         try:
             delays = self.historical_data['flight_delays'].get(airline, {}).get(route, [])
-            return sum(delays) / len(delays) if delays else 15.0  # 기본 15분
+            return sum(delays) / len(delays) if delays else 15.0  # Default 15 min
         except:
             return 15.0
     
     def update_tsa_wait(self, airport: str, hour: int, wait_time: int):
-        """TSA 대기 시간 통계 업데이트"""
+        """Update TSA wait-time statistics."""
         if airport not in self.historical_data['tsa_wait_times']:
             self.historical_data['tsa_wait_times'][airport] = {}
         
@@ -213,7 +213,7 @@ class HistoricalDataFallback:
         
         self.historical_data['tsa_wait_times'][airport][hour].append(wait_time)
         
-        # 최근 50개만 유지
+        # Keep only the most recent 50 entries
         if len(self.historical_data['tsa_wait_times'][airport][hour]) > 50:
             self.historical_data['tsa_wait_times'][airport][hour] = \
                 self.historical_data['tsa_wait_times'][airport][hour][-50:]
@@ -221,7 +221,7 @@ class HistoricalDataFallback:
         self._save_data()
     
     def get_avg_tsa_wait(self, airport: str, hour: int, has_precheck: bool = False) -> int:
-        """평균 TSA 대기 시간"""
+        """Get average TSA wait time."""
         try:
             waits = self.historical_data['tsa_wait_times'].get(airport, {}).get(hour, [])
             avg = sum(waits) / len(waits) if waits else (10 if has_precheck else 30)
@@ -230,7 +230,7 @@ class HistoricalDataFallback:
             return 10 if has_precheck else 30
     
     def update_travel_time(self, origin: str, dest: str, mode: str, time: int):
-        """교통 시간 통계 업데이트"""
+        """Update travel-time statistics."""
         key = f"{origin}_{dest}"
         
         if key not in self.historical_data['travel_times']:
@@ -241,7 +241,7 @@ class HistoricalDataFallback:
         
         self.historical_data['travel_times'][key][mode].append(time)
         
-        # 최근 50개만 유지
+        # Keep only the most recent 50 entries
         if len(self.historical_data['travel_times'][key][mode]) > 50:
             self.historical_data['travel_times'][key][mode] = \
                 self.historical_data['travel_times'][key][mode][-50:]
@@ -249,44 +249,44 @@ class HistoricalDataFallback:
         self._save_data()
     
     def get_avg_travel_time(self, origin: str, dest: str, mode: str) -> int:
-        """평균 교통 시간"""
+        """Get average travel time."""
         key = f"{origin}_{dest}"
         try:
             times = self.historical_data['travel_times'].get(key, {}).get(mode, [])
-            return int(sum(times) / len(times)) if times else 60  # 기본 1시간
+            return int(sum(times) / len(times)) if times else 60  # Default 1 hour
         except:
             return 60
 
 
-# 전역 인스턴스
+# Global instances
 cache_manager = CacheManager()
 historical_fallback = HistoricalDataFallback()
 
 
 def cached_api_call(category: str, api_func, use_stale_on_error: bool = True, **cache_params):
     """
-    캐시를 활용한 안전한 API 호출
+    Safe API call wrapper with caching.
     
     Args:
-        category: 캐시 카테고리
-        api_func: API 호출 함수
-        use_stale_on_error: 에러 시 만료된 캐시 사용 여부
-        **cache_params: 캐시 키 생성용 파라미터
+        category: Cache category.
+        api_func: API call function.
+        use_stale_on_error: Whether to use stale cache on failure.
+        **cache_params: Parameters used to generate cache key.
     
     Returns:
-        API 응답 또는 캐시된 데이터
+        API response or cached data.
     """
-    # 1. 유효한 캐시 확인
+    # 1. Check valid cache
     cached = cache_manager.get(category, **cache_params)
     if cached:
         print(f"   📦 Using cached {category} data")
         return cached
     
-    # 2. API 호출 시도
+    # 2. Try API call
     try:
         result = api_func()
         
-        # 성공 시 캐시 저장
+        # Cache on success
         cache_manager.set(category, result, **cache_params)
         
         return result
@@ -294,27 +294,27 @@ def cached_api_call(category: str, api_func, use_stale_on_error: bool = True, **
     except Exception as e:
         print(f"   ❌ API call failed: {e}")
         
-        # 3. 만료된 캐시라도 사용 (서버 장애 대응)
+        # 3. Use stale cache on failure (outage resilience)
         if use_stale_on_error:
             stale = cache_manager.get_stale(category, **cache_params)
             if stale:
                 print(f"   🔄 Using stale cache due to API failure")
                 return stale
         
-        # 4. 캐시도 없으면 예외 발생
+        # 4. Raise if no cache is available
         raise
 
 
 if __name__ == '__main__':
-    # 테스트
+    # Test
     print("=== Cache Module Test ===\n")
     
-    # 1. 캐시 저장/조회
+    # 1. Cache write/read
     cache_manager.set('test', {'value': 123}, key='test_key')
     result = cache_manager.get('test', key='test_key')
     print(f"1. Cache test: {result}\n")
     
-    # 2. 만료된 캐시 조회
+    # 2. Expired cache read
     import time
     cache_manager.ttl['test'] = timedelta(seconds=1)
     cache_manager.set('test', {'value': 456}, key='expire_test')

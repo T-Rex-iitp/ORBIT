@@ -1,6 +1,6 @@
 """
-Transformer 기반 출발 시간 예측 모델
-시계열 데이터를 입력받아 미래의 대기 시간을 예측
+Transformer-based departure-time prediction model.
+Takes time-series data as input and predicts future wait time.
 """
 import torch
 import torch.nn as nn
@@ -8,19 +8,19 @@ import math
 
 
 class PositionalEncoding(nn.Module):
-    """위치 인코딩 레이어"""
+    """Positional encoding layer."""
     
     def __init__(self, d_model: int, max_len: int = 5000, dropout: float = 0.1):
         """
         Args:
-            d_model: 임베딩 차원
-            max_len: 최대 시퀀스 길이
-            dropout: 드롭아웃 비율
+            d_model: Embedding dimension.
+            max_len: Maximum sequence length.
+            dropout: Dropout ratio.
         """
         super().__init__()
         self.dropout = nn.Dropout(p=dropout)
         
-        # 위치 인코딩 계산
+        # Compute positional encoding
         position = torch.arange(max_len).unsqueeze(1)
         div_term = torch.exp(torch.arange(0, d_model, 2) * (-math.log(10000.0) / d_model))
         
@@ -40,7 +40,7 @@ class PositionalEncoding(nn.Module):
 
 
 class TransformerTimeSeriesModel(nn.Module):
-    """Transformer 기반 시계열 예측 모델"""
+    """Transformer-based time-series prediction model."""
     
     def __init__(
         self,
@@ -54,26 +54,26 @@ class TransformerTimeSeriesModel(nn.Module):
     ):
         """
         Args:
-            input_dim: 입력 특성 차원
-            d_model: Transformer 임베딩 차원
-            nhead: 멀티헤드 어텐션 헤드 수
-            num_encoder_layers: 인코더 레이어 수
-            dim_feedforward: 피드포워드 네트워크 차원
-            dropout: 드롭아웃 비율
-            max_seq_length: 최대 시퀀스 길이
+            input_dim: Input feature dimension.
+            d_model: Transformer embedding dimension.
+            nhead: Number of multi-head attention heads.
+            num_encoder_layers: Number of encoder layers.
+            dim_feedforward: Feed-forward network dimension.
+            dropout: Dropout ratio.
+            max_seq_length: Maximum sequence length.
         """
         super().__init__()
         
         self.input_dim = input_dim
         self.d_model = d_model
         
-        # 입력 프로젝션
+        # Input projection
         self.input_projection = nn.Linear(input_dim, d_model)
         
-        # 위치 인코딩
+        # Positional encoding
         self.pos_encoder = PositionalEncoding(d_model, max_seq_length, dropout)
         
-        # Transformer 인코더
+        # Transformer encoder
         encoder_layer = nn.TransformerEncoderLayer(
             d_model=d_model,
             nhead=nhead,
@@ -86,7 +86,7 @@ class TransformerTimeSeriesModel(nn.Module):
             num_layers=num_encoder_layers
         )
         
-        # 출력 레이어
+        # Output layer
         self.output_layer = nn.Sequential(
             nn.Linear(d_model, dim_feedforward // 2),
             nn.ReLU(),
@@ -97,7 +97,7 @@ class TransformerTimeSeriesModel(nn.Module):
         self._init_weights()
     
     def _init_weights(self):
-        """가중치 초기화"""
+        """Initialize weights."""
         for p in self.parameters():
             if p.dim() > 1:
                 nn.init.xavier_uniform_(p)
@@ -108,31 +108,31 @@ class TransformerTimeSeriesModel(nn.Module):
             x: [batch_size, seq_len, input_dim]
             
         Returns:
-            torch.Tensor: [batch_size, 1] - 예측된 대기 시간
+            torch.Tensor: [batch_size, 1] - predicted wait time.
         """
         # [batch, seq, features] -> [seq, batch, features]
         x = x.transpose(0, 1)
         
-        # 입력 프로젝션
+        # Input projection
         x = self.input_projection(x)  # [seq, batch, d_model]
         
-        # 위치 인코딩 추가
+        # Add positional encoding
         x = self.pos_encoder(x)
         
-        # Transformer 인코더
+        # Transformer encoder
         encoded = self.transformer_encoder(x)  # [seq, batch, d_model]
         
-        # 마지막 타임스텝의 출력만 사용
+        # Use only the output of the last time step
         last_output = encoded[-1, :, :]  # [batch, d_model]
         
-        # 최종 예측
+        # Final prediction
         output = self.output_layer(last_output)  # [batch, 1]
         
         return output
 
 
 class LSTMBaselineModel(nn.Module):
-    """비교를 위한 LSTM 베이스라인 모델"""
+    """LSTM baseline model for comparison."""
     
     def __init__(
         self,
@@ -143,10 +143,10 @@ class LSTMBaselineModel(nn.Module):
     ):
         """
         Args:
-            input_dim: 입력 특성 차원
-            hidden_dim: LSTM 은닉 차원
-            num_layers: LSTM 레이어 수
-            dropout: 드롭아웃 비율
+            input_dim: Input feature dimension.
+            hidden_dim: LSTM hidden dimension.
+            num_layers: Number of LSTM layers.
+            dropout: Dropout ratio.
         """
         super().__init__()
         
@@ -163,7 +163,7 @@ class LSTMBaselineModel(nn.Module):
             batch_first=True
         )
         
-        # 출력 레이어
+        # Output layer
         self.output_layer = nn.Sequential(
             nn.Linear(hidden_dim, hidden_dim // 2),
             nn.ReLU(),
@@ -177,15 +177,15 @@ class LSTMBaselineModel(nn.Module):
             x: [batch_size, seq_len, input_dim]
             
         Returns:
-            torch.Tensor: [batch_size, 1] - 예측된 대기 시간
+            torch.Tensor: [batch_size, 1] - predicted wait time.
         """
         # LSTM
         lstm_out, (hidden, cell) = self.lstm(x)
         
-        # 마지막 타임스텝의 출력 사용
+        # Use output from the last time step
         last_output = lstm_out[:, -1, :]  # [batch, hidden_dim]
         
-        # 최종 예측
+        # Final prediction
         output = self.output_layer(last_output)  # [batch, 1]
         
         return output
@@ -193,15 +193,15 @@ class LSTMBaselineModel(nn.Module):
 
 def create_model(model_type: str = 'transformer', input_dim: int = 8, **kwargs) -> nn.Module:
     """
-    모델 생성 팩토리 함수
+    Factory function to create a model.
     
     Args:
-        model_type: 모델 타입 ('transformer' 또는 'lstm')
-        input_dim: 입력 특성 차원
-        **kwargs: 모델별 추가 파라미터
+        model_type: Model type ('transformer' or 'lstm').
+        input_dim: Input feature dimension.
+        **kwargs: Additional model-specific parameters.
         
     Returns:
-        nn.Module: 생성된 모델
+        nn.Module: Created model.
     """
     if model_type == 'transformer':
         return TransformerTimeSeriesModel(input_dim=input_dim, **kwargs)
@@ -212,27 +212,27 @@ def create_model(model_type: str = 'transformer', input_dim: int = 8, **kwargs) 
 
 
 def test_model():
-    """모델 테스트"""
-    # 테스트 데이터
+    """Test model outputs."""
+    # Test data
     batch_size = 16
     seq_len = 24
     input_dim = 8
     
     x = torch.randn(batch_size, seq_len, input_dim)
     
-    print("=== Transformer 모델 테스트 ===")
+    print("=== Transformer Model Test ===")
     transformer_model = create_model('transformer', input_dim=input_dim)
     transformer_output = transformer_model(x)
-    print(f"입력 shape: {x.shape}")
-    print(f"출력 shape: {transformer_output.shape}")
-    print(f"파라미터 수: {sum(p.numel() for p in transformer_model.parameters()):,}")
+    print(f"Input shape: {x.shape}")
+    print(f"Output shape: {transformer_output.shape}")
+    print(f"Parameter count: {sum(p.numel() for p in transformer_model.parameters()):,}")
     
-    print("\n=== LSTM 모델 테스트 ===")
+    print("\n=== LSTM Model Test ===")
     lstm_model = create_model('lstm', input_dim=input_dim)
     lstm_output = lstm_model(x)
-    print(f"입력 shape: {x.shape}")
-    print(f"출력 shape: {lstm_output.shape}")
-    print(f"파라미터 수: {sum(p.numel() for p in lstm_model.parameters()):,}")
+    print(f"Input shape: {x.shape}")
+    print(f"Output shape: {lstm_output.shape}")
+    print(f"Parameter count: {sum(p.numel() for p in lstm_model.parameters()):,}")
 
 
 if __name__ == "__main__":

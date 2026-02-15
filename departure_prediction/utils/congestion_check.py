@@ -1,17 +1,18 @@
 """
-JFK 공역 혼잡도 판단 모듈
+JFK airspace congestion evaluation module.
 
-과거 실측 flight count 데이터(CSV)를 기반으로 시간대별 평균/표준편차를 계산하고,
-RUI(또는 ADS-B tracker)로부터 실시간 flight count를 받아 현재 혼잡도를 판단한다.
+Calculates hourly mean/standard deviation from historical measured
+flight-count data (CSV), then evaluates current congestion using
+real-time flight count from RUI (or ADS-B tracker).
 
-사용 흐름:
-  1. RUI에서 JFK 버튼 → 실시간 flight count 획득
-  2. 이 모듈의 check_congestion(count, hour) 호출
-  3. 과거 시간대별 평균과 비교 → congestion level 반환
-  4. hybrid_predictor.py 에서 지연 보정에 활용
+Typical flow:
+  1. Click JFK button in RUI -> obtain real-time flight count
+  2. Call check_congestion(count, hour) in this module
+  3. Compare against historical hourly mean -> return congestion level
+  4. Use result in hybrid_predictor.py for delay adjustment
 
-출력 형식은 기존 operational_factors.py / hybrid_predictor.py 의
-congestion_info dict 포맷과 호환된다.
+Output format is compatible with the congestion_info dict format used by
+operational_factors.py / hybrid_predictor.py.
 """
 
 from __future__ import annotations
@@ -28,8 +29,8 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 # ──────────────────────────────────────────────
-# 과거 JFK 인근 Flight Count 시간대별 통계
-# (JFK_FlightCount_20260115_101513.csv 에서 사전 계산)
+# Historical hourly Flight Count statistics around JFK
+# (precomputed from JFK_FlightCount_20260115_101513.csv)
 #
 # key: hour (0-23)
 # value: (mean, std)
@@ -44,7 +45,7 @@ _DEFAULT_HOURLY_STATS: Dict[int, Tuple[float, float]] = {
     6:  (38.04,  6.15),
     7:  (59.99, 10.87),
     8:  (68.59,  5.51),
-    9:  (71.45,  5.65),   # 보간값 (8시·10시 평균)
+    9:  (71.45,  5.65),   # Interpolated value (average of 08:00 and 10:00)
     10: (74.31,  5.79),
     11: (76.01,  7.72),
     12: (72.83,  6.48),
@@ -64,19 +65,19 @@ _DEFAULT_HOURLY_STATS: Dict[int, Tuple[float, float]] = {
 
 class JFKCongestionChecker:
     """
-    JFK 인근 공역 혼잡도 판단기.
+    JFK nearby airspace congestion evaluator.
 
-    - 과거 실측 데이터(CSV 또는 내장 통계)에서 시간대별 평균·표준편차를 계산
-    - 실시간 flight count와 비교하여 z-score 기반 혼잡도 반환
-    - ADS-B tracker에 직접 연결하여 실시간 count를 얻는 기능 제공
+    - Computes hourly mean/std from historical measured data (CSV or built-in stats)
+    - Returns z-score based congestion by comparing with real-time flight count
+    - Provides direct ADS-B tracker connectivity for real-time count retrieval
     """
 
     def __init__(self, csv_path: Optional[str] = None):
         """
         Args:
-            csv_path: 과거 flight count CSV 파일 경로.
-                      None이면 내장 기본 통계(_DEFAULT_HOURLY_STATS)를 사용.
-                      CSV 컬럼: timestamp, datetime, flight_count, elapsed_hours
+            csv_path: Path to historical flight-count CSV file.
+                      If None, uses built-in default stats (_DEFAULT_HOURLY_STATS).
+                      CSV columns: timestamp, datetime, flight_count, elapsed_hours
         """
         if csv_path and os.path.isfile(csv_path):
             self.hourly_stats = self._load_stats_from_csv(csv_path)
@@ -86,11 +87,11 @@ class JFKCongestionChecker:
             self._csv_loaded = False
 
     # ──────────────────────────────────────
-    # CSV에서 시간대별 통계 계산
+    # Compute hourly statistics from CSV
     # ──────────────────────────────────────
     @staticmethod
     def _load_stats_from_csv(csv_path: str) -> Dict[int, Tuple[float, float]]:
-        """CSV 파일에서 시간대별 (mean, std)를 계산한다."""
+        """Compute hourly (mean, std) from CSV file."""
         hourly_values: Dict[int, List[float]] = {}
 
         with open(csv_path, "r", encoding="utf-8") as f:
@@ -111,10 +112,10 @@ class JFKCongestionChecker:
                 variance = sum((v - mean) ** 2 for v in values) / (n - 1)
                 std = math.sqrt(variance)
             else:
-                std = 1.0  # 데이터 1개면 기본 std=1
+                std = 1.0  # If only one sample exists, use default std=1
             stats[hour] = (round(mean, 2), round(std, 2))
 
-        # 빠진 시간대가 있으면 기본값으로 보간
+        # Interpolate missing hours with default values
         for hour in range(24):
             if hour not in stats:
                 stats[hour] = _DEFAULT_HOURLY_STATS.get(hour, (50.0, 10.0))
@@ -122,7 +123,7 @@ class JFKCongestionChecker:
         return stats
 
     # ──────────────────────────────────────
-    # 혼잡도 판단 (핵심 로직)
+    # Determine congestion (core logic)
     # ──────────────────────────────────────
     def check_congestion(
         self,
@@ -131,20 +132,21 @@ class JFKCongestionChecker:
         reference_time: Optional[datetime] = None,
     ) -> Dict:
         """
-        현재 flight count를 해당 시간대 과거 평균과 비교하여 혼잡도를 판단한다.
+        Determine congestion by comparing current flight count with historical
+        average for the same hour.
 
         Args:
-            current_flight_count: RUI 또는 ADS-B tracker에서 얻은 실시간 flight count
-            hour: 비교 대상 시간대 (0-23). None이면 현재 시각 사용.
-            reference_time: 참조 시각 (hour 파라미터가 None일 때 사용)
+            current_flight_count: Real-time flight count from RUI or ADS-B tracker
+            hour: Hour bucket to compare (0-23). If None, uses current hour.
+            reference_time: Reference time (used when hour is None)
 
         Returns:
-            hybrid_predictor.py의 congestion_info 포맷과 호환되는 dict:
+            Dict compatible with hybrid_predictor.py congestion_info format:
             {
                 'level': 'low' | 'medium' | 'high',
                 'score': float (0.0 ~ 1.0),
                 'sample_size': int,
-                'recommended_extra_delay': int (분),
+                'recommended_extra_delay': int (minutes),
                 'source': 'historical_comparison',
                 'details': {
                     'current_count': int,
@@ -156,7 +158,7 @@ class JFKCongestionChecker:
                 }
             }
         """
-        # 시간대 결정
+        # Determine hour bucket
         if hour is None:
             if reference_time is not None:
                 hour = reference_time.hour
@@ -167,18 +169,18 @@ class JFKCongestionChecker:
 
         mean, std = self.hourly_stats.get(hour, (50.0, 10.0))
 
-        # z-score 계산 (std=0 방지)
+        # Compute z-score (avoid std=0)
         if std < 0.01:
             std = 1.0
         z_score = (current_flight_count - mean) / std
 
-        # 비율 (현재 / 평균)
+        # Ratio (current / average)
         ratio = current_flight_count / mean if mean > 0 else 1.0
 
-        # 혼잡도 점수 (0~1 범위, z-score 기반)
+        # Congestion score (0-1 range, z-score based)
         score = min(max(z_score / 3.0, 0.0), 1.0)
 
-        # 혼잡도 레벨 및 권장 추가 지연
+        # Congestion level and recommended extra delay
         if z_score > 1.5:
             level = "high"
             extra_delay = 20
@@ -206,13 +208,14 @@ class JFKCongestionChecker:
         }
 
     # ──────────────────────────────────────
-    # 거리 계산 (Haversine) - C++ RUI와 동일
+    # Distance calculation (Haversine) - same as C++ RUI
     # ──────────────────────────────────────
     @staticmethod
     def _haversine_miles(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
         """
-        두 좌표 사이의 거리를 statute miles로 계산 (Haversine 공식).
-        C++ RUI의 CalculateDistanceMiles()와 동일한 로직.
+        Compute distance between two coordinates in statute miles
+        using Haversine formula.
+        Same logic as C++ RUI CalculateDistanceMiles().
         """
         EARTH_RADIUS_MILES = 3958.8
 
@@ -232,8 +235,8 @@ class JFKCongestionChecker:
         return EARTH_RADIUS_MILES * c
 
     # ──────────────────────────────────────
-    # SBS 피드에서 실시간 flight count 수신
-    # (RUI의 SBS Connect와 동일한 방식)
+    # Receive real-time flight count from SBS feed
+    # (same method as RUI's SBS Connect)
     # ──────────────────────────────────────
     def get_realtime_count_from_sbs(
         self,
@@ -245,32 +248,35 @@ class JFKCongestionChecker:
         radius_miles: float = 50.0,
     ) -> Tuple[int, int, Dict]:
         """
-        SBS BaseStation 피드에 접속하여 JFK 반경 내 항공기 수를 실시간 집계.
+        Connect to SBS BaseStation feed and count aircraft in JFK radius
+        in real time.
 
-        RUI의 JFK 버튼 → CountFlightsInRadius()와 동일한 로직을 Python으로 구현.
-        SBS 피드 포트는 5002 (C++ RUI의 IdTCPClientSBS->Port=5002와 동일).
+        Python implementation of same logic as RUI JFK button ->
+        CountFlightsInRadius().
+        SBS feed port is 5002 (same as C++ RUI IdTCPClientSBS->Port=5002).
 
-        SBS 메시지 포맷:
+        SBS message format:
           MSG,type,sessionID,aircraftID,hexIdent,flightID,
           dateGen,timeGen,dateLog,timeLog,
           callsign,altitude,groundSpeed,track,lat,lon,
           verticalRate,squawk,...
 
         Args:
-            host: SBS 피드 서버 주소 (기본: 128.237.96.41)
-            port: SBS 피드 포트 (기본: 5002, RUI와 동일)
-            collect_seconds: 수집 시간(초). 충분한 위치 데이터를 받으려면 15-30초 권장.
-            center_lat: 중심 위도 (기본: JFK 40.6413)
-            center_lon: 중심 경도 (기본: JFK -73.7781)
-            radius_miles: 반경 (기본: 50 마일, RUI JFK 버튼과 동일)
+            host: SBS feed server host (default: 128.237.96.41)
+            port: SBS feed port (default: 5002, same as RUI)
+            collect_seconds: Collection duration in seconds. 15-30s recommended
+                             to gather enough position data.
+            center_lat: Center latitude (default: JFK 40.6413)
+            center_lon: Center longitude (default: JFK -73.7781)
+            radius_miles: Radius in miles (default: 50, same as RUI JFK button)
 
         Returns:
-            (jfk_count, total_count, aircraft_info) 튜플:
-              - jfk_count: JFK 반경 내 항공기 수
-              - total_count: 전체 고유 항공기 수
-              - aircraft_info: 각 항공기의 상세 정보 dict
+            (jfk_count, total_count, aircraft_info) tuple:
+              - jfk_count: aircraft count within JFK radius
+              - total_count: total unique aircraft count
+              - aircraft_info: detailed info dict per aircraft
         """
-        # 항공기별 최신 위치/정보 저장
+        # Store latest position/info per aircraft
         aircraft: Dict[str, Dict] = {}
 
         try:
@@ -301,7 +307,7 @@ class JFKCongestionChecker:
                     if not hex_ident:
                         continue
 
-                    # 항공기 엔트리 생성/업데이트
+                    # Create/update aircraft entry
                     if hex_ident not in aircraft:
                         aircraft[hex_ident] = {
                             "icao": hex_ident,
@@ -314,25 +320,25 @@ class JFKCongestionChecker:
 
                     ac = aircraft[hex_ident]
 
-                    # 콜사인 (필드 10)
+                    # Callsign (field 10)
                     if len(parts) > 10 and parts[10].strip():
                         ac["callsign"] = parts[10].strip()
 
-                    # 고도 (필드 11)
+                    # Altitude (field 11)
                     if len(parts) > 11 and parts[11].strip():
                         try:
                             ac["altitude"] = int(float(parts[11].strip()))
                         except ValueError:
                             pass
 
-                    # 속도 (필드 12)
+                    # Speed (field 12)
                     if len(parts) > 12 and parts[12].strip():
                         try:
                             ac["ground_speed"] = float(parts[12].strip())
                         except ValueError:
                             pass
 
-                    # 위도/경도 (필드 14, 15) - 핵심: JFK 거리 계산에 필요
+                    # Latitude/longitude (fields 14, 15) - required for JFK distance calculation
                     if len(parts) > 15:
                         lat_s = parts[14].strip()
                         lon_s = parts[15].strip()
@@ -351,7 +357,7 @@ class JFKCongestionChecker:
             except Exception:
                 pass
 
-        # JFK 반경 내 항공기 카운트 (RUI의 CountFlightsInRadius와 동일)
+        # Count aircraft within JFK radius (same as RUI's CountFlightsInRadius)
         jfk_count = 0
         for ac in aircraft.values():
             if ac["lat"] is not None and ac["lon"] is not None:
@@ -368,7 +374,7 @@ class JFKCongestionChecker:
         return jfk_count, len(aircraft), aircraft
 
     # ──────────────────────────────────────
-    # 기존 호환: 단순 ICAO 카운트 방식
+    # Legacy compatibility: simple ICAO counting method
     # ──────────────────────────────────────
     def get_realtime_count_from_tracker(
         self,
@@ -377,16 +383,16 @@ class JFKCongestionChecker:
         collect_seconds: int = 30,
     ) -> int:
         """
-        SBS 피드에 접속하여 JFK 50마일 반경 내 항공기 수를 반환.
-        (RUI JFK 버튼과 동일한 결과)
+        Connect to SBS feed and return aircraft count within 50 miles of JFK.
+        (Same result as RUI JFK button)
 
         Args:
-            host: SBS 피드 호스트 (기본: 128.237.96.41)
-            port: SBS 피드 포트 (기본: 5002)
-            collect_seconds: 수집 시간(초)
+            host: SBS feed host (default: 128.237.96.41)
+            port: SBS feed port (default: 5002)
+            collect_seconds: Collection duration (seconds)
 
         Returns:
-            JFK 반경 50마일 내 항공기 수
+            Aircraft count within 50-mile JFK radius
         """
         jfk_count, total_count, _ = self.get_realtime_count_from_sbs(
             host=host, port=port, collect_seconds=collect_seconds
@@ -394,7 +400,7 @@ class JFKCongestionChecker:
         return jfk_count
 
     # ──────────────────────────────────────
-    # 통합: SBS 실시간 수집 + 혼잡도 판단
+    # Integrated flow: SBS real-time collection + congestion evaluation
     # ──────────────────────────────────────
     def check_realtime_congestion(
         self,
@@ -405,20 +411,21 @@ class JFKCongestionChecker:
         radius_miles: float = 50.0,
     ) -> Dict:
         """
-        SBS 피드에서 실시간 JFK 반경 내 항공기 수를 집계하고 혼잡도를 판단.
+        Aggregate real-time aircraft count in JFK radius from SBS feed and
+        evaluate congestion.
 
-        RUI의 SBS Connect (128.237.96.41:5002) → JFK 버튼과 동일한 동작을
-        Python에서 자동으로 수행한다.
+        Automatically performs Python equivalent of RUI SBS Connect
+        (128.237.96.41:5002) -> JFK button action.
 
         Args:
-            host: SBS 피드 호스트 (기본: 128.237.96.41)
-            port: SBS 피드 포트 (기본: 5002)
-            collect_seconds: 수집 시간(초). 30초 권장.
-            hour: 비교 대상 시간대 (0-23). None이면 현재 시각.
-            radius_miles: JFK 중심 반경 (기본: 50마일)
+            host: SBS feed host (default: 128.237.96.41)
+            port: SBS feed port (default: 5002)
+            collect_seconds: Collection duration (seconds). 30s recommended.
+            hour: Hour bucket to compare (0-23). If None, uses current hour.
+            radius_miles: Radius around JFK center (default: 50 miles)
 
         Returns:
-            check_congestion()과 동일한 형식의 dict + SBS 상세 정보 추가
+            Dict in check_congestion() format plus SBS detail fields
         """
         print(f"   [SBS] Connecting to {host}:{port} ...")
         print(f"   [SBS] Collecting data for {collect_seconds} seconds ...")
@@ -433,7 +440,7 @@ class JFKCongestionChecker:
 
         result = self.check_congestion(jfk_count, hour=hour)
 
-        # SBS 실시간 상세 정보 추가
+        # Add SBS real-time detailed info
         result["source"] = "sbs_realtime"
         result["details"]["total_aircraft"] = total_count
         result["details"]["jfk_radius_miles"] = radius_miles
@@ -444,7 +451,7 @@ class JFKCongestionChecker:
         return result
 
     # ──────────────────────────────────────
-    # RUI에서 JFK 카운트 읽기 (공유 파일)
+    # Read JFK count from RUI (shared file)
     # ──────────────────────────────────────
     @staticmethod
     def get_count_from_rui(
@@ -452,10 +459,10 @@ class JFKCongestionChecker:
         max_age_seconds: float = 300,
     ) -> Optional[Dict]:
         """
-        RUI가 JFK 버튼 클릭 시 기록한 공유 파일에서 flight count를 읽는다.
+        Read flight count from shared file written when RUI JFK button is clicked.
 
-        RUI (C++ ADS-B Display)는 JFK 버튼을 누르면
-        departure_prediction/data/jfk_realtime_count.json 에 아래 형식으로 기록:
+        RUI (C++ ADS-B Display) writes the following format to
+        departure_prediction/data/jfk_realtime_count.json when JFK button is pressed:
         {
             "flight_count": 87,
             "airport": "JFK",
@@ -467,12 +474,13 @@ class JFKCongestionChecker:
         }
 
         Args:
-            file_path: JSON 파일 경로. None이면 기본 경로 사용.
-            max_age_seconds: 데이터 유효 시간(초). 기본 300초(5분).
-                             이보다 오래된 데이터는 None 반환.
+            file_path: JSON file path. If None, default path is used.
+            max_age_seconds: Data validity window in seconds. Default 300s (5 min).
+                             Older data returns None.
 
         Returns:
-            파일의 JSON 내용을 dict로 반환. 파일이 없거나 유효 기간 초과 시 None.
+            Returns JSON content as dict. Returns None if file does not exist or
+            data is expired.
         """
         if file_path is None:
             data_dir = Path(__file__).resolve().parent.parent / "data"
@@ -485,7 +493,7 @@ class JFKCongestionChecker:
             with open(file_path, "r", encoding="utf-8") as f:
                 data = json.load(f)
 
-            # 유효 기간 확인
+            # Check validity period
             if "timestamp" in data and max_age_seconds > 0:
                 ts = datetime.strptime(data["timestamp"], "%Y-%m-%d %H:%M:%S")
                 age = (datetime.now() - ts).total_seconds()
@@ -506,20 +514,21 @@ class JFKCongestionChecker:
         hour: Optional[int] = None,
     ) -> Optional[Dict]:
         """
-        RUI의 JFK 버튼 결과(공유 파일)에서 flight count를 읽어 혼잡도를 판단.
+        Read flight count from RUI JFK-button output (shared file) and
+        evaluate congestion.
 
-        사용 흐름:
-          1. RUI에서 SBS Connect (128.237.96.41:5002)
-          2. RUI에서 JFK 버튼 클릭 → 파일에 count 기록
-          3. 이 함수 호출 → 파일에서 count 읽어 혼잡도 분석
+        Flow:
+          1. SBS Connect in RUI (128.237.96.41:5002)
+          2. Click JFK button in RUI -> count written to file
+          3. Call this function -> read file and analyze congestion
 
         Args:
-            file_path: 공유 JSON 파일 경로. None이면 기본 경로.
-            max_age_seconds: 데이터 유효 시간(초). 기본 300초(5분).
-            hour: 비교 대상 시간대 (0-23). None이면 현재 시각.
+            file_path: Shared JSON file path. If None, uses default path.
+            max_age_seconds: Data validity window in seconds. Default 300s (5 min).
+            hour: Hour bucket to compare (0-23). If None, uses current hour.
 
         Returns:
-            congestion_info dict. 파일이 없거나 데이터가 오래되면 None.
+            congestion_info dict. Returns None if file is missing or data is stale.
         """
         rui_data = self.get_count_from_rui(
             file_path=file_path, max_age_seconds=max_age_seconds
@@ -538,7 +547,7 @@ class JFKCongestionChecker:
 
         result = self.check_congestion(count, hour=hour)
 
-        # RUI 소스 정보 추가
+        # Add RUI source info
         result["source"] = "rui"
         result["details"]["rui_timestamp"] = timestamp
         result["details"]["jfk_radius_miles"] = radius
@@ -546,10 +555,10 @@ class JFKCongestionChecker:
         return result
 
     # ──────────────────────────────────────
-    # 시간대별 통계 요약 (디버깅/확인용)
+    # Hourly statistics summary (for debugging/verification)
     # ──────────────────────────────────────
     def get_hourly_summary(self) -> str:
-        """시간대별 평균/표준편차 요약 테이블을 문자열로 반환."""
+        """Return hourly mean/std summary table as a string."""
         lines = [
             f"{'Hour':>4}  {'Mean':>8}  {'Std':>8}  {'Source'}",
             "-" * 40,
@@ -562,10 +571,10 @@ class JFKCongestionChecker:
 
 
 # ──────────────────────────────────────────────
-# 편의 함수 (모듈 레벨)
+# Convenience function (module level)
 # ──────────────────────────────────────────────
 
-# 싱글톤 인스턴스 (CSV가 있으면 자동 로드)
+# Singleton instance (auto-load when CSV exists)
 _DATA_DIR = Path(__file__).resolve().parent.parent / "data"
 _DEFAULT_CSV = _DATA_DIR / "jfk_historical_flight_counts.csv"
 
@@ -573,7 +582,7 @@ _checker_instance: Optional[JFKCongestionChecker] = None
 
 
 def get_checker(csv_path: Optional[str] = None) -> JFKCongestionChecker:
-    """싱글톤 JFKCongestionChecker 인스턴스를 반환."""
+    """Return singleton JFKCongestionChecker instance."""
     global _checker_instance
     if _checker_instance is None:
         path = csv_path or (str(_DEFAULT_CSV) if _DEFAULT_CSV.exists() else None)
@@ -587,15 +596,15 @@ def check_jfk_congestion(
     reference_time: Optional[datetime] = None,
 ) -> Dict:
     """
-    간편 호출 함수: 실시간 flight count로 JFK 혼잡도를 판단.
+    Convenience function: evaluate JFK congestion from real-time flight count.
 
     Args:
-        current_flight_count: 현재 JFK 인근 flight count (RUI에서 전달)
-        hour: 비교 대상 시간대 (0-23). None이면 현재 시각.
-        reference_time: 참조 시각 (hour 대신 사용 가능)
+        current_flight_count: Current flight count around JFK (from RUI)
+        hour: Hour bucket to compare (0-23). If None, uses current hour.
+        reference_time: Reference time (can be used instead of hour)
 
     Returns:
-        congestion_info dict (hybrid_predictor.py 호환)
+        congestion_info dict (compatible with hybrid_predictor.py)
 
     Example:
         >>> from utils.congestion_check import check_jfk_congestion
@@ -616,18 +625,18 @@ def check_jfk_congestion_from_rui(
     max_age_seconds: float = 300,
 ) -> Optional[Dict]:
     """
-    RUI의 JFK 버튼 결과에서 flight count를 읽어 혼잡도를 판단.
+    Read flight count from RUI JFK-button output and evaluate congestion.
 
-    사용 흐름:
-      1. RUI에서 SBS Connect → JFK 버튼 클릭
-      2. 이 함수 호출 → 파일에서 최신 count 읽어 혼잡도 분석
+    Flow:
+      1. SBS Connect in RUI -> click JFK button
+      2. Call this function -> read latest count from file and analyze congestion
 
     Args:
-        hour: 비교 대상 시간대 (0-23). None이면 현재 시각.
-        max_age_seconds: 데이터 유효 시간(초). 기본 300초(5분).
+        hour: Hour bucket to compare (0-23). If None, uses current hour.
+        max_age_seconds: Data validity window in seconds. Default 300s (5 min).
 
     Returns:
-        congestion_info dict. RUI 데이터가 없으면 None.
+        congestion_info dict. Returns None if no RUI data is available.
 
     Example:
         >>> from utils.congestion_check import check_jfk_congestion_from_rui
@@ -642,7 +651,7 @@ def check_jfk_congestion_from_rui(
 
 
 # ──────────────────────────────────────────────
-# CLI 테스트
+# CLI test
 # ──────────────────────────────────────────────
 if __name__ == "__main__":
     import argparse
@@ -655,61 +664,61 @@ if __name__ == "__main__":
         except:
             pass
 
-    parser = argparse.ArgumentParser(description="JFK 공역 혼잡도 판단")
+    parser = argparse.ArgumentParser(description="Evaluate JFK airspace congestion")
     parser.add_argument(
         "--count", type=int, default=None,
-        help="현재 flight count (지정하지 않으면 ADS-B tracker에서 수집)"
+        help="Current flight count (if omitted, collect from ADS-B tracker)"
     )
     parser.add_argument(
         "--hour", type=int, default=None,
-        help="비교 대상 시간대 (0-23, 기본: 현재 시각)"
+        help="Hour bucket for comparison (0-23, default: current hour)"
     )
     parser.add_argument(
         "--csv", type=str, default=None,
-        help="과거 flight count CSV 파일 경로"
+        help="Path to historical flight-count CSV file"
     )
     parser.add_argument(
         "--host", type=str, default="128.237.96.41",
-        help="SBS 피드 호스트 (기본: 128.237.96.41)"
+        help="SBS feed host (default: 128.237.96.41)"
     )
     parser.add_argument(
         "--port", type=int, default=5002,
-        help="SBS 피드 포트 (기본: 5002, RUI와 동일)"
+        help="SBS feed port (default: 5002, same as RUI)"
     )
     parser.add_argument(
         "--collect", type=int, default=3,
-        help="SBS 수집 시간(초) (기본: 3)"
+        help="SBS collection duration in seconds (default: 3)"
     )
     parser.add_argument(
         "--radius", type=float, default=50.0,
-        help="JFK 중심 반경 마일 (기본: 50.0, RUI와 동일)"
+        help="Radius in miles around JFK center (default: 50.0, same as RUI)"
     )
     parser.add_argument(
         "--from-rui", action="store_true",
-        help="RUI JFK 버튼 결과(공유 파일)에서 flight count 읽기"
+        help="Read flight count from RUI JFK-button output (shared file)"
     )
     parser.add_argument(
         "--max-age", type=float, default=300,
-        help="RUI 데이터 유효 시간(초) (기본: 300 = 5분)"
+        help="RUI data validity in seconds (default: 300 = 5 min)"
     )
     parser.add_argument(
         "--summary", action="store_true",
-        help="시간대별 통계 요약 출력"
+        help="Print hourly statistics summary"
     )
     args = parser.parse_args()
 
     checker = JFKCongestionChecker(csv_path=args.csv)
 
     if args.summary:
-        print("\n=== JFK 인근 시간대별 Flight Count 통계 ===\n")
+        print("\n=== Hourly Flight Count Statistics Around JFK ===\n")
         print(checker.get_hourly_summary())
         print()
 
     if args.count is not None:
-        # 직접 count 전달
+        # Pass count directly
         result = checker.check_congestion(args.count, hour=args.hour)
     elif args.from_rui:
-        # RUI JFK 버튼 결과에서 읽기
+        # Read from RUI JFK button output
         result = checker.check_rui_congestion(
             max_age_seconds=args.max_age, hour=args.hour
         )
@@ -722,21 +731,21 @@ if __name__ == "__main__":
             print("  4. Run this script with --from-rui")
             sys.exit(1)
     else:
-        # SBS 피드에서 실시간 수집 (RUI SBS Connect와 동일)
+        # Real-time collection from SBS feed (same as RUI SBS Connect)
         result = checker.check_realtime_congestion(
             host=args.host, port=args.port,
             collect_seconds=args.collect, hour=args.hour,
             radius_miles=args.radius,
         )
 
-    print(f"\n=== JFK 공역 혼잡도 결과 ===")
-    print(f"  현재 Flight Count : {result['details']['current_count']}")
-    print(f"  비교 시간대       : {result['details']['hour']}시")
-    print(f"  과거 평균         : {result['details']['historical_mean']:.1f}")
-    print(f"  과거 표준편차     : {result['details']['historical_std']:.1f}")
+    print(f"\n=== JFK Airspace Congestion Result ===")
+    print(f"  Current Flight Count : {result['details']['current_count']}")
+    print(f"  Compared Hour        : {result['details']['hour']}:00")
+    print(f"  Historical Mean      : {result['details']['historical_mean']:.1f}")
+    print(f"  Historical Std Dev   : {result['details']['historical_std']:.1f}")
     print(f"  Z-Score           : {result['details']['z_score']:.2f}")
-    print(f"  비율 (현재/평균)  : {result['details']['ratio']:.2f}")
+    print(f"  Ratio (current/mean) : {result['details']['ratio']:.2f}")
     print(f"  ---")
-    print(f"  혼잡도 레벨       : {result['level'].upper()}")
-    print(f"  혼잡도 점수       : {result['score']:.3f}")
-    print(f"  권장 추가 지연    : +{result['recommended_extra_delay']}분")
+    print(f"  Congestion Level     : {result['level'].upper()}")
+    print(f"  Congestion Score     : {result['score']:.3f}")
+    print(f"  Recommended Delay    : +{result['recommended_extra_delay']} min")

@@ -1,6 +1,6 @@
 """
-항공권 티켓 OCR - 이미지에서 비행 정보 추출
-Tesseract, EasyOCR, 또는 LLM Vision을 사용하여 티켓 정보 인식
+Airline ticket OCR - extract flight information from images.
+Recognizes ticket information using Tesseract, EasyOCR, or LLM Vision.
 """
 import os
 import re
@@ -35,7 +35,7 @@ except ImportError:
 
 
 class TicketOCR:
-    """항공권 티켓 정보 추출"""
+    """Extract airline ticket information."""
     
     def __init__(self, method: str = 'auto'):
         """
@@ -45,7 +45,7 @@ class TicketOCR:
         self.method = method
         
         if method == 'auto':
-            # 사용 가능한 첫 번째 방법 선택 (Ollama LLaVA 우선)
+            # Choose the first available method (prefer Ollama LLaVA)
             if HAS_VISION:
                 self.method = 'vision'
             elif HAS_EASYOCR:
@@ -54,26 +54,26 @@ class TicketOCR:
                 self.method = 'tesseract'
             else:
                 raise ImportError(
-                    "OCR 라이브러리가 설치되지 않았습니다.\n"
-                    "다음 중 하나를 설치하세요:\n"
+                    "No OCR library is installed.\n"
+                    "Install one of the following:\n"
                     "  pip install pytesseract  # Tesseract\n"
                     "  pip install easyocr      # EasyOCR\n"
-                    "  pip install requests     # Ollama LLaVA (권장)"
+                    "  pip install requests     # Ollama LLaVA (recommended)"
                 )
     
     def extract_with_tesseract(self, image_path: str) -> str:
-        """Tesseract OCR로 텍스트 추출"""
+        """Extract text with Tesseract OCR."""
         if not HAS_TESSERACT or not HAS_PIL:
-            raise ImportError("pytesseract와 Pillow가 필요합니다")
+            raise ImportError("pytesseract and Pillow are required")
         
         image = Image.open(image_path)
         text = pytesseract.image_to_string(image)
         return text
     
     def extract_with_easyocr(self, image_path: str) -> str:
-        """EasyOCR로 텍스트 추출"""
+        """Extract text with EasyOCR."""
         if not HAS_EASYOCR:
-            raise ImportError("easyocr가 필요합니다")
+            raise ImportError("easyocr is required")
         
         reader = easyocr.Reader(['en', 'ko'])
         results = reader.readtext(image_path)
@@ -81,22 +81,22 @@ class TicketOCR:
         return text
     
     def extract_with_vision(self, image_path: str) -> Dict:
-        """Ollama LLaVA로 정보 추출"""
+        """Extract information with Ollama LLaVA."""
         if not HAS_VISION:
-            raise ImportError("requests 패키지가 필요합니다")
+            raise ImportError("requests package is required")
         
-        # 이미지를 base64로 인코딩
+        # Encode image to base64
         with open(image_path, 'rb') as f:
             image_data = base64.b64encode(f.read()).decode('utf-8')
         
-        # Ollama API 호출
+        # Call Ollama API
         ollama_url = os.getenv('OLLAMA_HOST', 'http://127.0.0.1:11434')
         
         prompt = """Carefully read this airline ticket image and extract the information in JSON format ONLY.
 
 CRITICAL: Read the flight number EXACTLY as shown on the ticket!
 - Flight number = 2-letter airline code + digits (e.g., QR2867, AA100, DL302, B6623)
-- Look for labels: "Flight:", "Flight No:", "항공편:", or large bold text with airline code
+- Look for labels: "Flight:", "Flight No:", "Flight #:", or large bold text with airline code
 - Common airlines: QR (Qatar), AA (American), DL (Delta), UA (United), B6 (JetBlue), SQ (Singapore)
 - Double-check: Is it "QR" or "SQ"? Is it "2867" or "1481"? Read CAREFULLY!
 
@@ -115,12 +115,12 @@ Return ONLY this JSON format (no extra text):
 
 Reading tips:
 - Flight number is usually in LARGE BOLD text or near "Flight:" label
-- Departure airport: look for "From:", "출발:", or origin code before arrow (→)
-- Arrival airport: look for "To:", "도착:", or destination code after arrow (→)
+- Departure airport: look for "From:", "Departure:", or origin code before arrow (→)
+- Arrival airport: look for "To:", "Arrival:", or destination code after arrow (→)
 - Date: Convert to YYYY-MM-DD format
 - Time: Use 24-hour format HH:MM
 - Terminal: Extract just the number
-- Baggage: true if you see "Checked Baggage", "Bags", "수하물"
+- Baggage: true if you see "Checked Baggage", "Bags", or baggage allowance text
 - TSA: true if you see "TSA PreCheck", "TSA ✓"
 
 Read EXACTLY what you see. Do NOT guess or infer."""
@@ -137,14 +137,14 @@ Read EXACTLY what you see. Do NOT guess or infer."""
         )
         
         if response.status_code != 200:
-            raise Exception(f"Ollama API 오류: {response.status_code} - {response.text}")
+            raise Exception(f"Ollama API error: {response.status_code} - {response.text}")
         
-        # JSON 파싱
+        # Parse JSON
         import json
         result = response.json()
         content = result.get('response', '')
         
-        # JSON 블록 추출 (```json ... ``` 제거)
+        # Extract JSON block (remove ```json ... ```)
         if '```json' in content:
             content = content.split('```json')[1].split('```')[0].strip()
         elif '```' in content:
@@ -153,7 +153,7 @@ Read EXACTLY what you see. Do NOT guess or infer."""
         return json.loads(content)
     
     def parse_text_for_flight_info(self, text: str) -> Dict:
-        """텍스트에서 비행 정보 파싱"""
+        """Parse flight information from text."""
         info = {
             'departure_time': None,
             'flight_number': None,
@@ -163,7 +163,7 @@ Read EXACTLY what you see. Do NOT guess or infer."""
             'passenger_name': None
         }
         
-        # 날짜/시간 패턴
+        # Date/time patterns
         date_patterns = [
             r'(\d{4}[-/]\d{2}[-/]\d{2})\s+(\d{1,2}:\d{2})',  # 2026-02-05 19:00
             r'(\d{2}[-/]\d{2}[-/]\d{4})\s+(\d{1,2}:\d{2})',  # 02-05-2026 19:00
@@ -178,7 +178,7 @@ Read EXACTLY what you see. Do NOT guess or infer."""
                         date_str = f"{match.group(1)} {match.group(2)}"
                         info['departure_time'] = datetime.strptime(date_str, "%Y-%m-%d %H:%M")
                     elif len(match.groups()) == 4:
-                        # 월 이름 형식
+                        # Month-name format
                         month_map = {
                             'Jan': '01', 'Feb': '02', 'Mar': '03', 'Apr': '04',
                             'May': '05', 'Jun': '06', 'Jul': '07', 'Aug': '08',
@@ -194,19 +194,19 @@ Read EXACTLY what you see. Do NOT guess or infer."""
                 except:
                     continue
         
-        # 항공편 번호 패턴 (예: AA123, KE001, DL2345)
+        # Flight-number patterns (e.g., AA123, KE001, DL2345)
         flight_pattern = r'\b([A-Z]{2}\d{3,4})\b'
         match = re.search(flight_pattern, text)
         if match:
             info['flight_number'] = match.group(1)
         
-        # 터미널 패턴
+        # Terminal pattern
         terminal_pattern = r'Terminal\s+(\d+|[A-Z])'
         match = re.search(terminal_pattern, text, re.IGNORECASE)
         if match:
             info['terminal'] = f"Terminal {match.group(1)}"
         
-        # 공항 코드 패턴 (3글자 대문자)
+        # Airport-code pattern (3 uppercase letters)
         airport_pattern = r'\b([A-Z]{3})\b'
         airports = re.findall(airport_pattern, text)
         if len(airports) >= 2:
@@ -216,14 +216,14 @@ Read EXACTLY what you see. Do NOT guess or infer."""
         return info
     
     def extract(self, image_path: str) -> Dict:
-        """이미지에서 비행 정보 추출"""
+        """Extract flight information from image."""
         if not os.path.exists(image_path):
-            raise FileNotFoundError(f"이미지 파일을 찾을 수 없습니다: {image_path}")
+            raise FileNotFoundError(f"Image file not found: {image_path}")
         
-        print(f"🔍 이미지 분석 중... (방법: {self.method})")
+        print(f"🔍 Analyzing image... (method: {self.method})")
         
         if self.method == 'vision':
-            # Vision API는 직접 구조화된 데이터 반환
+            # Vision API returns structured data directly
             return self.extract_with_vision(image_path)
         
         elif self.method == 'tesseract':
@@ -235,55 +235,55 @@ Read EXACTLY what you see. Do NOT guess or infer."""
             return self.parse_text_for_flight_info(text)
         
         else:
-            raise ValueError(f"지원하지 않는 OCR 방법: {self.method}")
+            raise ValueError(f"Unsupported OCR method: {self.method}")
 
 
 def extract_flight_info(image_path: str, method: str = 'auto') -> Dict:
     """
-    항공권 이미지에서 비행 정보 추출 (간편 함수)
+    Extract flight information from airline ticket image (convenience function).
     
     Args:
-        image_path: 이미지 파일 경로
-        method: OCR 방법 ('auto', 'tesseract', 'easyocr', 'vision')
+        image_path: Image file path
+        method: OCR method ('auto', 'tesseract', 'easyocr', 'vision')
         
     Returns:
-        Dict: 추출된 비행 정보
+        Dict: Extracted flight information
     """
     ocr = TicketOCR(method=method)
     return ocr.extract(image_path)
 
 
 def main():
-    """테스트 실행"""
+    """Run test."""
     import sys
     
     if len(sys.argv) < 2:
-        print("사용법: python ticket_ocr.py <이미지_경로>")
-        print("예시: python ticket_ocr.py ticket.jpg")
+        print("Usage: python ticket_ocr.py <image_path>")
+        print("Example: python ticket_ocr.py ticket.jpg")
         return
     
     image_path = sys.argv[1]
     
     print("=" * 70)
-    print("    🎫 항공권 티켓 OCR")
+    print("    🎫 Airline Ticket OCR")
     print("=" * 70)
     print()
     
     try:
         info = extract_flight_info(image_path)
         
-        print("✅ 추출 완료!\n")
-        print("📋 인식된 정보:")
-        print(f"   • 출발 시간: {info.get('departure_time')}")
-        print(f"   • 항공편: {info.get('flight_number')}")
-        print(f"   • 출발 공항: {info.get('departure_airport')}")
-        print(f"   • 도착 공항: {info.get('arrival_airport')}")
-        print(f"   • 터미널: {info.get('terminal')}")
-        print(f"   • 승객: {info.get('passenger_name')}")
+        print("✅ Extraction complete!\n")
+        print("📋 Recognized information:")
+        print(f"   • Departure time: {info.get('departure_time')}")
+        print(f"   • Flight: {info.get('flight_number')}")
+        print(f"   • Departure airport: {info.get('departure_airport')}")
+        print(f"   • Arrival airport: {info.get('arrival_airport')}")
+        print(f"   • Terminal: {info.get('terminal')}")
+        print(f"   • Passenger: {info.get('passenger_name')}")
         print()
         
     except Exception as e:
-        print(f"❌ 오류: {str(e)}")
+        print(f"❌ Error: {str(e)}")
         import traceback
         traceback.print_exc()
 

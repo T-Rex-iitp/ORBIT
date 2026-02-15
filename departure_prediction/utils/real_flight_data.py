@@ -1,6 +1,6 @@
 """
-실제 JFK 출발 항공편 데이터 수집
-AviationStack API (무료) 사용
+Collect real JFK departure flight data.
+Uses the AviationStack API (free tier).
 """
 import requests
 import json
@@ -16,12 +16,12 @@ except:
 
 
 class RealFlightDataCollector:
-    """실제 항공편 데이터 수집기"""
+    """Real flight data collector."""
     
-    # 무료 API 옵션들
+    # Free API options
     AVIATIONSTACK_URL = "http://api.aviationstack.com/v1/flights"
     
-    # 미국 주요 국내선 공항
+    # Major U.S. domestic airports
     DOMESTIC_AIRPORTS = {
         'ATL', 'LAX', 'ORD', 'DFW', 'DEN', 'SFO', 'SEA', 'LAS', 'MCO',
         'CLT', 'PHX', 'IAH', 'MIA', 'BOS', 'MSP', 'FLL', 'DTW', 'PHL',
@@ -31,19 +31,19 @@ class RealFlightDataCollector:
     def __init__(self, api_key: str = None):
         """
         Args:
-            api_key: AviationStack API 키 (무료: aviationstack.com에서 발급)
+            api_key: AviationStack API key (free at aviationstack.com)
         """
         self.api_key = api_key or os.getenv('AVIATIONSTACK_API_KEY')
     
     def get_jfk_departures_today(self, limit: int = 50) -> List[Dict]:
         """
-        오늘 JFK 출발 항공편 조회
+        Fetch today's JFK departures.
         
         Returns:
-            List[Dict]: 항공편 정보
+            List[Dict]: Flight information
         """
         if not self.api_key:
-            print("⚠️  AviationStack API 키가 없습니다. 샘플 데이터를 반환합니다.")
+            print("⚠️  AviationStack API key is missing. Returning sample data.")
             return self._get_sample_data()
         
         params = {
@@ -53,19 +53,19 @@ class RealFlightDataCollector:
         }
         
         try:
-            print(f"🌐 AviationStack API 호출 중...")
+            print("🌐 Calling AviationStack API...")
             response = requests.get(self.AVIATIONSTACK_URL, params=params, timeout=10)
             response.raise_for_status()
             
             data = response.json()
             
             if 'data' not in data:
-                print(f"⚠️  API 응답 오류: {data}")
+                print(f"⚠️  API response error: {data}")
                 return self._get_sample_data()
             
             flights = []
             for flight in data['data']:
-                # 국내선만 필터링
+                # Filter to domestic flights only
                 arrival_iata = flight.get('arrival', {}).get('iata', '')
                 if arrival_iata in self.DOMESTIC_AIRPORTS:
                     
@@ -85,23 +85,23 @@ class RealFlightDataCollector:
                     }
                     flights.append(flight_info)
             
-            print(f"✅ {len(flights)}개의 국내선 항공편 수집")
+            print(f"✅ Collected {len(flights)} domestic flights")
             return flights
             
         except requests.RequestException as e:
-            print(f"❌ API 호출 오류: {str(e)}")
+            print(f"❌ API call error: {str(e)}")
             return self._get_sample_data()
     
     def _get_sample_data(self) -> List[Dict]:
         """
-        실제 데이터 기반 샘플 (JFK 실제 스케줄 참고)
-        과거 데이터나 전형적인 스케줄 기반
+        Sample data based on real JFK schedules.
+        Built from historical or typical scheduling patterns.
         """
-        print("📋 실제 JFK 스케줄 기반 샘플 데이터 사용")
+        print("📋 Using sample data based on real JFK schedules")
         
         base = datetime.now()
         
-        # 실제 JFK 국내선 스케줄 기반 (일반적인 패턴)
+        # Based on real JFK domestic schedules (typical pattern)
         flights = [
             {
                 'flight_number': 'AA100',
@@ -178,7 +178,7 @@ class RealFlightDataCollector:
         return flights
     
     def save_to_json(self, flights: List[Dict], filename: str = None):
-        """항공편 데이터를 JSON으로 저장"""
+        """Save flight data to JSON."""
         if filename is None:
             filename = f"real_jfk_flights_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
         
@@ -192,14 +192,14 @@ class RealFlightDataCollector:
                 'flights': flights
             }, f, indent=2, ensure_ascii=False)
         
-        print(f"💾 저장: {filepath}")
+        print(f"💾 Saved: {filepath}")
         return filepath
 
 
 def main():
-    """테스트"""
+    """Test runner."""
     print("=" * 70)
-    print("    ✈️  실제 JFK 출발 항공편 데이터 수집")
+    print("    ✈️  Real JFK Departure Flight Data Collection")
     print("=" * 70)
     print()
     
@@ -207,22 +207,22 @@ def main():
     flights = collector.get_jfk_departures_today(limit=30)
     
     if flights:
-        print(f"\n📊 수집 결과: {len(flights)}개 국내선 항공편")
+        print(f"\n📊 Collection result: {len(flights)} domestic flights")
         
         for flight in flights[:5]:
             print(f"  ✈️  {flight['flight_number']} → {flight['destination']}")
-            print(f"     예정: {flight['scheduled_time']}")
+            print(f"     Scheduled: {flight['scheduled_time']}")
             if flight.get('actual_time'):
-                print(f"     실제: {flight['actual_time']} (지연: {flight.get('delay', 0)}분)")
+                print(f"     Actual: {flight['actual_time']} (Delay: {flight.get('delay', 0)} min)")
             print()
         
         filepath = collector.save_to_json(flights)
-        print(f"✅ 완료!")
+        print("✅ Done!")
         print()
-        print("💡 다음 단계:")
-        print("   1. 각 항공편에 대해 우리 시스템의 출발 시간 추천 생성")
-        print("   2. 추천 출발 시간 vs 실제 필요 시간 비교")
-        print("   3. 지연 데이터 고려하여 정확도 평가")
+        print("💡 Next steps:")
+        print("   1. Generate departure-time recommendations for each flight in our system")
+        print("   2. Compare recommended departure time vs actual required time")
+        print("   3. Evaluate accuracy considering delay data")
 
 
 if __name__ == "__main__":

@@ -1,54 +1,53 @@
-# GCP Gemini 사용 가이드
+# GCP Gemini Usage Guide
 
+## Setup
 
-## 설정 방법
-
-### 1. GCP 프로젝트 설정
+### 1. Configure GCP project
 
 ```bash
-# 프로젝트 생성
+# Create project
 gcloud projects create YOUR_PROJECT_ID
 
-# 프로젝트 설정
+# Set project
 gcloud config set project YOUR_PROJECT_ID
 
-# Vertex AI API 활성화
+# Enable Vertex AI API
 gcloud services enable aiplatform.googleapis.com
 ```
 
-### 2. 서비스 계정 생성
+### 2. Create service account
 
 ```bash
-# 서비스 계정 생성
+# Create service account
 gcloud iam service-accounts create gemini-client \
   --display-name="Gemini API Client"
 
-# Vertex AI 사용 권한 부여
+# Grant Vertex AI usage permission
 gcloud projects add-iam-policy-binding YOUR_PROJECT_ID \
   --member=serviceAccount:gemini-client@YOUR_PROJECT_ID.iam.gserviceaccount.com \
   --role=roles/aiplatform.user
 
-# 키 생성
+# Create key
 gcloud iam service-accounts keys create gemini-key.json \
   --iam-account=gemini-client@YOUR_PROJECT_ID.iam.gserviceaccount.com
 ```
 
-### 3. 환경 변수 설정
+### 3. Set environment variables
 
 ```bash
-# 필수
+# Required
 export GCP_PROJECT_ID=your-project-id
 export GOOGLE_APPLICATION_CREDENTIALS=/path/to/gemini-key.json
 
-# Gemini 사용 활성화
+# Enable Gemini usage
 export USE_GEMINI=true
 
-# 옵션 (GCS 모델도 사용하는 경우)
+# Optional (if using GCS model too)
 export GCS_MODEL_BUCKET=your-model-bucket
 export USE_GCS_MODEL=true
 ```
 
-### 4. Python 라이브러리 설치
+### 4. Install Python libraries
 
 ```bash
 pip install google-cloud-aiplatform pillow
@@ -56,21 +55,21 @@ pip install google-cloud-aiplatform pillow
 
 ---
 
-## 사용 방법
+## Usage
 
-### Python 코드에서
+### In Python code
 
 ```python
 from hybrid_predictor import HybridDeparturePredictor
 
-# Gemini 사용
+# Use Gemini
 predictor = HybridDeparturePredictor(
     model_path='models/delay_predictor_full.pkl',
     use_gemini=True,
     gemini_project_id='your-project-id'
 )
 
-# 또는 환경 변수 사용
+# Or use environment variables
 import os
 os.environ['USE_GEMINI'] = 'true'
 os.environ['GCP_PROJECT_ID'] = 'your-project-id'
@@ -78,12 +77,12 @@ os.environ['GCP_PROJECT_ID'] = 'your-project-id'
 predictor = HybridDeparturePredictor()
 ```
 
-### 티켓 OCR (Vision)
+### Ticket OCR (Vision)
 
 ```python
 from utils.gemini_client import GeminiTicketOCR
 
-# 이미지에서 티켓 정보 추출
+# Extract ticket information from image
 ocr = GeminiTicketOCR(project_id='your-project-id')
 ticket_info = ocr.extract_with_vision('ticket.png')
 
@@ -97,10 +96,10 @@ print(ticket_info)
 # }
 ```
 
-### 출발 시간 추천 (LLM)
+### Departure recommendation (LLM)
 
 ```python
-# 자동으로 Gemini 사용 (USE_GEMINI=true인 경우)
+# Automatically use Gemini (when USE_GEMINI=true)
 result = predictor.recommend_departure(
     address="Times Square, New York",
     flight_info={...},
@@ -114,97 +113,97 @@ print(result['recommendation'])
 
 ---
 
-## 비용 계산
+## Cost Calculation
 
-### Gemini 1.5 Flash (추천)
+### Gemini 1.5 Flash (Recommended)
 
-| 작업 | 요청 수 | 토큰 | 비용 |
+| Task | Requests | Tokens | Cost |
 |------|--------|------|------|
-| 티켓 OCR (Vision) | 1회 | 1K | $0.001 |
-| 출발 추천 (LLM) | 1회 | 2K | $0.002 |
-| **합계 (1회 사용)** | | | **$0.003** |
+| Ticket OCR (Vision) | 1 | 1K | $0.001 |
+| Departure recommendation (LLM) | 1 | 2K | $0.002 |
+| **Total (per use)** | | | **$0.003** |
 
-### 월간 비용 예시
+### Monthly cost example
 
-**100명/일 사용 시:**
-- 일일: 100회 × $0.003 = $0.3
-- 월간: $0.3 × 30 = **$9/월** ✅
+**For 100 users/day:**
+- Daily: 100 × $0.003 = $0.3
+- Monthly: $0.3 × 30 = **$9/month** ✅
 
-**vs Ollama GPU 서버:** $100/월 ❌
+**vs Ollama GPU server:** $100/month ❌
 
-**절감액:** $91/월 (90% 절감!) 💰
+**Savings:** $91/month (90% reduction) 💰
 
-### Gemini Pro (더 정확)
+### Gemini Pro (More accurate)
 
-| 작업 | 비용 |
+| Task | Cost |
 |------|------|
 | Vision | $0.0025/1K |
 | LLM | $0.005/1K |
-| **합계** | **$0.0075/회** |
+| **Total** | **$0.0075/use** |
 
-월 3000회 사용 시: **$22.5/월** (여전히 저렴)
+For 3000 uses/month: **$22.5/month** (still affordable)
 
 ---
 
-## 성능 비교
+## Performance Comparison
 
-### 속도
-
-```
-티켓 OCR:
-- Ollama: 8-12초
-- Gemini: 1-2초 ⚡ (6배 빠름)
-
-LLM 추천:
-- Ollama: 5-10초
-- Gemini: 1-2초 ⚡ (5배 빠름)
-```
-
-### 정확도
+### Speed
 
 ```
-티켓 정보 추출:
+Ticket OCR:
+- Ollama: 8-12 sec
+- Gemini: 1-2 sec ⚡ (6x faster)
+
+LLM recommendation:
+- Ollama: 5-10 sec
+- Gemini: 1-2 sec ⚡ (5x faster)
+```
+
+### Accuracy
+
+```
+Ticket info extraction:
 - Ollama: 75-80%
 - Gemini: 95%+ ✅
 
-자연어 생성:
+Natural language generation:
 - Ollama: 80%
 - Gemini: 95%+ ✅
 ```
 
 ---
 
-## 모범 사례
+## Best Practices
 
-### 1. 환경별 설정
+### 1. Environment-based configuration
 
 ```python
 # config.py
 import os
 
-# 개발: Ollama (로컬 테스트)
-# 프로덕션: Gemini (빠르고 안정적)
+# Development: Ollama (local testing)
+# Production: Gemini (fast and stable)
 USE_GEMINI = os.getenv('ENVIRONMENT') == 'production'
 ```
 
-### 2. Fallback 전략
+### 2. Fallback strategy
 
 ```python
-# Gemini 실패 시 Ollama로 폴백
+# Fall back to Ollama if Gemini fails
 try:
     if use_gemini:
         result = gemini_client.generate_text(prompt)
     else:
         result = ollama_generate(prompt)
 except Exception as e:
-    # 둘 다 실패 시 템플릿 사용
+    # Use template if both fail
     result = fallback_template(data)
 ```
 
-### 3. 캐싱
+### 3. Caching
 
 ```python
-# 같은 이미지 반복 분석 방지
+# Prevent repeated analysis of the same image
 @lru_cache(maxsize=100)
 def cached_ocr(image_hash):
     return gemini_client.analyze_image(image_path)
@@ -212,90 +211,90 @@ def cached_ocr(image_hash):
 
 ---
 
-## 문제 해결
+## Troubleshooting
 
-### 권한 에러
+### Permission error
 
 ```bash
-# Vertex AI 권한 확인
+# Check Vertex AI permissions
 gcloud projects get-iam-policy YOUR_PROJECT_ID \
   --flatten="bindings[].members" \
   --filter="bindings.role:roles/aiplatform.user"
 ```
 
-### API 활성화 에러
+### API enablement error
 
 ```bash
-# API 상태 확인
+# Check API status
 gcloud services list --enabled --filter="aiplatform"
 
-# 활성화
+# Enable
 gcloud services enable aiplatform.googleapis.com
 ```
 
-### 비용 초과 방지
+### Prevent cost overrun
 
 ```python
-# 일일 예산 설정
+# Set daily budget
 from google.cloud import billing
 
-# 예산 초과 시 알림
+# Alert on budget overrun
 # GCP Console > Billing > Budgets & Alerts
 ```
 
 ---
 
-## 마이그레이션 체크리스트
+## Migration Checklist
 
-- [ ] GCP 프로젝트 생성
-- [ ] Vertex AI API 활성화
-- [ ] 서비스 계정 생성 및 키 다운로드
-- [ ] 환경 변수 설정 (GCP_PROJECT_ID, GOOGLE_APPLICATION_CREDENTIALS)
+- [ ] Create GCP project
+- [ ] Enable Vertex AI API
+- [ ] Create service account and download key
+- [ ] Set environment variables (GCP_PROJECT_ID, GOOGLE_APPLICATION_CREDENTIALS)
 - [ ] `pip install google-cloud-aiplatform`
-- [ ] `USE_GEMINI=true` 설정
-- [ ] 로컬 테스트
-- [ ] 비용 모니터링 설정
-- [ ] Ollama 서버 종료 (비용 절감)
+- [ ] Set `USE_GEMINI=true`
+- [ ] Local test
+- [ ] Configure cost monitoring
+- [ ] Stop Ollama server (cost savings)
 
 ---
 
-## 추가 기능
+## Additional Features
 
-### 1. 스트리밍 응답
+### 1. Streaming response
 
 ```python
-# 실시간 응답 (사용자 경험 개선)
+# Real-time response (better UX)
 for chunk in gemini_client.generate_text_stream(prompt):
     print(chunk, end='', flush=True)
 ```
 
-### 2. 다국어 지원
+### 2. Multilingual support
 
 ```python
-# 한국어 프롬프트 → 영어 응답
+# Korean prompt -> English response
 response = gemini_client.generate_text(
-    "이 항공권 정보를 영어로 설명해주세요.",
+    "Please explain this flight ticket information in English.",
     language='en'
 )
 ```
 
-### 3. 배치 처리
+### 3. Batch processing
 
 ```python
-# 여러 이미지 동시 처리
+# Process multiple images simultaneously
 images = ['ticket1.png', 'ticket2.png', 'ticket3.png']
 results = gemini_client.batch_analyze(images)
 ```
 
 ---
 
-## 결론
+## Conclusion
 
-✅ **Gemini 사용 권장 이유:**
-1. 90% 비용 절감 ($100 → $9/월)
-2. 6배 빠른 속도 (10초 → 2초)
-3. 95% 높은 정확도
-4. 서버 관리 불필요
-5. 무한 확장 가능
+✅ **Why Gemini is recommended:**
+1. 90% cost reduction ($100 -> $9/month)
+2. 6x faster speed (10 sec -> 2 sec)
+3. 95% higher accuracy
+4. No server management required
+5. Infinite scalability
 
-Ollama는 개발/테스트용, **프로덕션은 Gemini!** 🚀
+Use Ollama for development/testing, and **Gemini for production**! 🚀
