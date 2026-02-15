@@ -2845,7 +2845,7 @@ def main() -> None:
         st.markdown("---")
         st.markdown(
             '<p style="text-align:center;color:#546e7a;font-size:0.78rem;">'
-            "IFTA Departure Assistant v2.0<br>Team T-Rex · CMU IITP 2025</p>",
+            "IFTA Departure Assistant v2.0</p>",
             unsafe_allow_html=True,
         )
 

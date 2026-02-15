@@ -56,7 +56,7 @@ To install the OpenGL Panel component, follow the steps outlined below.
  The demo programs serve as use examples.
 
 Contact Daniel Plakosh at <dplakosh@cobweb.net> or
-<dplakosh@sei.cmu.edu> to request assistance or to report a problem with
+<dplakosh@sei.example.org> to request assistance or to report a problem with
 this software. Criticism, suggestions and comments are also greatly
 appreciated. Remember to always include the OpenGLPanel version and system
 information in your messages.

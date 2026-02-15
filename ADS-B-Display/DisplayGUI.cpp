@@ -45,7 +45,7 @@
 // #define BIG_QUERY_CONDA_ACTIVATE_ENV "BIGQUERY_CONDA_ACTIVATE"
 // #define BIG_QUERY_CONDA_ENV_NAME_ENV "BIGQUERY_CONDA_ENV"
 // #define BIG_QUERY_CONDA_ACTIVATE_DEFAULT "C:\\Users\\admin\\miniconda3\\Scripts\\activate.bat"
-// #define BIG_QUERY_CONDA_ENV_DEFAULT "iitp"
+// #define BIG_QUERY_CONDA_ENV_DEFAULT "default"
 #define   LEFT_MOUSE_DOWN   1
 #define   RIGHT_MOUSE_DOWN  2
 #define   MIDDLE_MOUSE_DOWN 4
@@ -209,8 +209,8 @@ __fastcall TForm1::TForm1(TComponent* Owner)
   
   // Initialize speech transcription paths
   AnsiString HomeDir = ExtractFilePath(ExtractFileDir(Application->ExeName));
-  // Use conda iitp environment Python directly
-  SpeechPythonPath = "C:\\Users\\admin\\miniconda3\\envs\\iitp\\python.exe"; // Use iitp conda environment
+  // Use system Python for speech transcription
+  SpeechPythonPath = "python";
   // Fix path: go up from Win64/Release to ADS-B-Display, then up to AI-Enabled-IFTA, then to speech
   SpeechTranscribeScriptPath = HomeDir + AnsiString("..\\..\\speech\\transcribe.py");
   SpeechTranscribeThread = NULL;
@@ -3516,4 +3516,3 @@ void __fastcall TForm1::LIstenClick(TObject *Sender)
 	}
 }
 //---------------------------------------------------------------------------
-

@@ -5,8 +5,6 @@ This repository contains the implementation of **ORBIT**, a multimodal airport d
 ORBIT is designed to answer a practical question: **"When should I leave for the airport?"**  
 Instead of returning a single opaque timestamp, ORBIT combines predictive models and real-time operational signals, then provides an interpretable, component-level timeline.
 
-This work was conducted as part of the 2025 IITP Project at Carnegie Mellon University.
-
 ## What ORBIT Does
 
 - Generates personalized **leave-by recommendations**

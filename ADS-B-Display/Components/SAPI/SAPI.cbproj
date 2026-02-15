@@ -62,7 +62,7 @@
         <ILINK_GenerateLibFile>true</ILINK_GenerateLibFile>
         <_TCHARMapping>char</_TCHARMapping>
         <Multithreaded>true</Multithreaded>
-        <DCC_UnitSearchPath>C:\Users\dplakosh\Desktop\ADS-B-2025\ADS-B-Display\Components\SAPI;$(DCC_UnitSearchPath)</DCC_UnitSearchPath>
+        <DCC_UnitSearchPath>$(PROJECTDIR);$(DCC_UnitSearchPath)</DCC_UnitSearchPath>
         <ILINK_Description>Speech API</ILINK_Description>
         <SanitizedProjectName>SAPI</SanitizedProjectName>
     </PropertyGroup>

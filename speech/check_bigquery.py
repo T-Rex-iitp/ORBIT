@@ -15,7 +15,7 @@ if sys.platform == 'win32':
 
 # Set up BigQuery credentials
 BIGQUERY_PATH = Path(__file__).parent.parent / "ADS-B-Display" / "BigQuery"
-API_KEY_PATH = BIGQUERY_PATH / "t-rex.json"
+API_KEY_PATH = BIGQUERY_PATH / "service-account.json"
 
 if API_KEY_PATH.exists():
     os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = str(API_KEY_PATH)
@@ -88,7 +88,7 @@ try:
         
         # Try a simple query
         print(f"\n🔍 Testing query...")
-        query = "SELECT COUNT(*) as total_rows FROM `iitp-class-team-4-473114.ADSB.Flight` LIMIT 1"
+        query = f"SELECT COUNT(*) as total_rows FROM `{client.project}.ADSB.Flight` LIMIT 1"
         query_job = client.query(query)
         results = query_job.result()
         for row in results:
@@ -124,4 +124,3 @@ else:
     print("\n⚠️  Could not determine configuration - no datasets found")
 
 print("=" * 60)
-

@@ -94,7 +94,7 @@
         <UWP_CppLogo44>$(BDS)\bin\Artwork\Windows\UWP\cppreg_UwpDefault_44.png</UWP_CppLogo44>
         <UWP_CppLogo150>$(BDS)\bin\Artwork\Windows\UWP\cppreg_UwpDefault_150.png</UWP_CppLogo150>
         <IncludePath>..\..\..\..\..\Desktop\ADS-B-2025\ADS-B-Display\Components\OpenGLv0.5BDS2006\Demos\DualTriangle\;$(IncludePath)</IncludePath>
-        <ILINK_LibraryPath>..\..\..\..\..\Desktop\ADS-B-2025\ADS-B-Display\Components\OpenGLv0.5BDS2006\Demos\DualTriangle\;C:\Users\dplakosh\Desktop\ADS-B-2025\ADS-B-Display\Components\OpenGLv0.5BDS2006\Component\Win64\Release;$(ILINK_LibraryPath)</ILINK_LibraryPath>
+        <ILINK_LibraryPath>$(PROJECTDIR);..\..\Component\Win64\Release;$(ILINK_LibraryPath)</ILINK_LibraryPath>
         <SanitizedProjectName>DualTriangle</SanitizedProjectName>
     </PropertyGroup>
     <PropertyGroup Condition="'$(Base_Win32)'!=''">

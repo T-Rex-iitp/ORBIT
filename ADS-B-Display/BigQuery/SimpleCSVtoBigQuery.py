@@ -42,14 +42,15 @@ else:
 current_directory = os.getcwd()
 print(current_directory)
 # Set credentials
-api_key = os.path.join(global_filepath, "t-rex.json")
+api_key = os.path.join(global_filepath, "service-account.json")
 os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = api_key
 
 # Construct a BigQuery client object.
 client = bigquery.Client()
 
 # Set table_id to the ID of the table.
-table_id = "iitp-class-team-4-473114.ADSB.Flight_test"
+project_id = os.getenv("BIGQUERY_PROJECT_ID", "PROJECT_ID")
+table_id = f"{project_id}.ADSB.Flight_test"
 
 job_config = bigquery.LoadJobConfig(
     source_format=bigquery.SourceFormat.CSV,

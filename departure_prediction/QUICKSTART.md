@@ -3,9 +3,8 @@
 ## 1-Minute Setup
 
 ```bash
-# 1. Clone the repository
-git clone https://github.com/T-Rex-iitp/AI-Enabled-IFTA.git
-cd AI-Enabled-IFTA/departure_prediction
+# 1. Move to project directory
+cd departure_prediction
 
 # 2. Set up Python environment
 conda create -n flight python=3.10
@@ -50,7 +49,7 @@ ollama serve
 
 **Model files missing?**
 - Train directly with the notebook
-- Ask your team
+- Ask project maintainers
 
 **API key error?**
 - Check the `.env` file

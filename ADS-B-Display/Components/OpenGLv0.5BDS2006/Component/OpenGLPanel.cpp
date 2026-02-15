@@ -17,7 +17,7 @@
 //| warranty.
 //|
 //| Contact Daniel Plakosh at <dplakosh@cobweb.net> or
-//| <dplakosh@sei.cmu.edu> to request assistance or to report a problem with
+//| <dplakosh@sei.example.org> to request assistance or to report a problem with
 //| this software. Criticism, suggestions and comments are also greatly
 //| appreciated. Remember to always include the TOpenGLPanel version and system
 //| information in your messages.

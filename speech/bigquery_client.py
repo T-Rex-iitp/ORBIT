@@ -14,7 +14,7 @@ from typing import Optional, Dict, Any, List, Tuple
 
 # Set up BigQuery credentials
 BIGQUERY_PATH = Path(__file__).parent.parent / "ADS-B-Display" / "BigQuery"
-API_KEY_PATH = BIGQUERY_PATH / "t-rex.json"
+API_KEY_PATH = BIGQUERY_PATH / "service-account.json"
 
 if API_KEY_PATH.exists():
     os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = str(API_KEY_PATH)
@@ -27,7 +27,7 @@ except ImportError:
 
 # Default configuration
 DEFAULT_CONFIG_PATH = Path(__file__).parent / "bigquery_config.json"
-DEFAULT_PROJECT = "iitp-class-team-4-473114"
+DEFAULT_PROJECT = os.getenv("BIGQUERY_PROJECT", "")
 DEFAULT_DATASET = "ADSB"
 DEFAULT_LOCATION = "asia-northeast3"
 
@@ -451,5 +451,4 @@ def main():
 
 if __name__ == "__main__":
     main()
-
 

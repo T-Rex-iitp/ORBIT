@@ -53,11 +53,10 @@ Gemini LLM natural-language recommendation
 
 ## 📦 Quick Start
 
-### 1. Clone repository
+### 1. Move to project directory
 
 ```bash
-git clone https://github.com/T-Rex-iitp/AI-Enabled-IFTA.git
-cd AI-Enabled-IFTA/departure_prediction
+cd departure_prediction
 ```
 
 ### 2. Install libraries
@@ -368,10 +367,6 @@ Issues and PRs are welcome.
 ## 📄 License
 
 MIT License
-
-## 👥 Development Team
-
-IITP AI Project Team
 
 ---
 
