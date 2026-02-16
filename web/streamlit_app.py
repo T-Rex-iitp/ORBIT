@@ -1851,6 +1851,7 @@ def process_departure_query(
         destination=destination,
         api_key=api_key,
         timeout_seconds=timeout_sec,
+        travel_mode=travel_mode,
     )
     if drive_minutes <= 0:
         drive_minutes = int(config.get("fallback_drive_minutes", 55))
@@ -2746,11 +2747,7 @@ def main() -> None:
 
         st.markdown("#### 🤖 AI Backend")
         gemini_on = _resolve_bool_setting(config, "use_gemini", "USE_GEMINI", False)
-        transformer_on = _resolve_bool_setting(
-            config, "use_transformer", "USE_TRANSFORMER", False
-        )
         st.caption(f"Gemini: {'ON' if gemini_on else 'OFF'}")
-        st.caption(f"Transformer delay model: {'ON' if transformer_on else 'OFF'}")
 
         st.markdown("#### 🎫 Ticket OCR (Gemini)")
         ticket_file = st.file_uploader(

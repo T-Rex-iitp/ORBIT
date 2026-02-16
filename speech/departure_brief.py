@@ -409,15 +409,51 @@ def _parse_duration_seconds(value: Any) -> Optional[int]:
     return None
 
 
+def _normalize_travel_mode(travel_mode: str) -> str:
+    mode = (travel_mode or "DRIVE").strip().upper()
+    if mode not in {"DRIVE", "TRANSIT", "WALK", "BICYCLE"}:
+        return "DRIVE"
+    return mode
+
+
+def _backfill_traffic_with_drive_mode(
+    mode: str,
+    traffic: str,
+    origin: str,
+    destination: str,
+    api_key: str,
+    timeout_seconds: int,
+) -> str:
+    """
+    For non-drive ETA modes, estimate traffic level using the same DRIVE logic.
+    Keeps ETA mode-specific while avoiding "unknown" traffic badges.
+    """
+    if mode == "DRIVE" or traffic != "unknown":
+        return traffic
+
+    drive_minutes, drive_traffic, _ = fetch_drive_info(
+        origin=origin,
+        destination=destination,
+        api_key=api_key,
+        timeout_seconds=timeout_seconds,
+        travel_mode="DRIVE",
+    )
+    if drive_minutes > 0 and drive_traffic != "unknown":
+        return drive_traffic
+    return traffic
+
+
 def fetch_drive_info_routes_api(
     origin: str,
     destination: str,
     api_key: str,
     timeout_seconds: int,
+    travel_mode: str = "DRIVE",
 ) -> Tuple[int, str, str]:
     if not api_key or requests is None:
         return -1, "unknown", "fallback"
 
+    mode = _normalize_travel_mode(travel_mode)
     url = "https://routes.googleapis.com/directions/v2:computeRoutes"
     headers = {
         "X-Goog-Api-Key": api_key,
@@ -432,10 +468,12 @@ def fetch_drive_info_routes_api(
     payload = {
         "origin": {"address": origin},
         "destination": {"address": destination},
-        "travelMode": "DRIVE",
-        "routingPreference": "TRAFFIC_AWARE",
+        "travelMode": mode,
         "computeAlternativeRoutes": False,
     }
+    if mode == "DRIVE":
+        # Routes API allows routingPreference only for DRIVE/TWO_WHEELER.
+        payload["routingPreference"] = "TRAFFIC_AWARE"
 
     try:
         response = requests.post(url, headers=headers, json=payload, timeout=timeout_seconds)
@@ -460,7 +498,7 @@ def fetch_drive_info_routes_api(
 
         drive_minutes = max(1, int(round(duration_sec / 60.0)))
         free_flow_minutes = max(1, int(round((static_sec or duration_sec) / 60.0)))
-        traffic = _traffic_level(drive_minutes, free_flow_minutes)
+        traffic = _traffic_level(drive_minutes, free_flow_minutes) if mode == "DRIVE" else "unknown"
         return drive_minutes, traffic, "google_routes_api"
     except Exception:
         return -1, "unknown", "fallback"
@@ -471,6 +509,7 @@ def fetch_drive_info(
     destination: str,
     api_key: str,
     timeout_seconds: int,
+    travel_mode: str = "DRIVE",
 ) -> Tuple[int, str, str]:
     """
     Returns (drive_minutes, traffic_level, source)
@@ -479,25 +518,38 @@ def fetch_drive_info(
     if not api_key or requests is None:
         return -1, "unknown", "fallback"
 
+    mode = _normalize_travel_mode(travel_mode)
+
     # Prefer Routes API (new). Fall back to Directions API (legacy) for compatibility.
     drive_minutes, traffic, source = fetch_drive_info_routes_api(
         origin=origin,
         destination=destination,
         api_key=api_key,
         timeout_seconds=timeout_seconds,
+        travel_mode=mode,
     )
     if drive_minutes > 0:
+        traffic = _backfill_traffic_with_drive_mode(
+            mode=mode,
+            traffic=traffic,
+            origin=origin,
+            destination=destination,
+            api_key=api_key,
+            timeout_seconds=timeout_seconds,
+        )
         return drive_minutes, traffic, source
 
     url = "https://maps.googleapis.com/maps/api/directions/json"
     params = {
         "origin": origin,
         "destination": destination,
-        "mode": "driving",
-        "departure_time": "now",
-        "traffic_model": "best_guess",
+        "mode": _GMAPS_TRAVEL_MODE.get(mode, "driving"),
         "key": api_key,
     }
+    if mode in {"DRIVE", "TRANSIT"}:
+        params["departure_time"] = "now"
+    if mode == "DRIVE":
+        params["traffic_model"] = "best_guess"
 
     try:
         response = requests.get(url, params=params, timeout=timeout_seconds)
@@ -516,14 +568,23 @@ def fetch_drive_info(
 
         leg = legs[0]
         duration = leg.get("duration", {}).get("value")
-        duration_traffic = leg.get("duration_in_traffic", {}).get("value", duration)
-
-        if not duration_traffic:
+        effective_duration = duration
+        if mode == "DRIVE":
+            effective_duration = leg.get("duration_in_traffic", {}).get("value", duration)
+        if not effective_duration:
             return -1, "unknown", "fallback"
 
-        drive_minutes = max(1, int(round(duration_traffic / 60.0)))
-        free_flow_minutes = max(1, int(round((duration or duration_traffic) / 60.0)))
-        traffic = _traffic_level(drive_minutes, free_flow_minutes)
+        drive_minutes = max(1, int(round(effective_duration / 60.0)))
+        free_flow_minutes = max(1, int(round((duration or effective_duration) / 60.0)))
+        traffic = _traffic_level(drive_minutes, free_flow_minutes) if mode == "DRIVE" else "unknown"
+        traffic = _backfill_traffic_with_drive_mode(
+            mode=mode,
+            traffic=traffic,
+            origin=origin,
+            destination=destination,
+            api_key=api_key,
+            timeout_seconds=timeout_seconds,
+        )
         return drive_minutes, traffic, "google_directions"
     except Exception:
         return -1, "unknown", "fallback"
